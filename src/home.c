@@ -38,12 +38,7 @@
 #define LAYOUT_FILE         "layout.plist"
 #define LAYOUT_SIZE_MAX     (16 * 1024 * 1024)
 
-/* One item together with the list that holds it. */
-typedef struct {
-    plist_t  node;                  /* the item */
-    plist_t  list;                  /* array that contains it */
-    uint32_t index;                 /* position in that array */
-} ItemRef;
+typedef HomeItem ItemRef;            /* one item together with the list that holds it */
 
 /* A folder made with F7 that has no items yet. */
 typedef struct {
@@ -96,7 +91,7 @@ static void springboard_close(Device* device, sbservices_client_t client)
 
 /* ------------------------------------------------------------------ items */
 
-static BOOL is_folder(plist_t item)
+BOOL home_is_folder(plist_t item)
 {
     plist_t lists;
     if (plist_get_node_type(item) != PLIST_DICT) return FALSE;
@@ -105,7 +100,7 @@ static BOOL is_folder(plist_t item)
 }
 
 /* Reads a text value of an item; FALSE when it is missing or empty. */
-static BOOL item_text(plist_t item, const char* key, char* dst, int dst_len)
+BOOL home_item_text(plist_t item, const char* key, char* dst, int dst_len)
 {
     plist_t node;
     char* value = NULL;
@@ -120,15 +115,15 @@ static BOOL item_text(plist_t item, const char* key, char* dst, int dst_len)
 }
 
 /* The name of an item as shown on the device, made usable as a file name. */
-static void item_base_name(plist_t item, char* dst, int dst_len)
+void home_item_name(plist_t item, char* dst, int dst_len)
 {
     WCHAR wide[NAME_MAX_UTF8];
     char text[NAME_MAX_UTF8];
     int len, i;
 
-    if (!item_text(item, "displayName", text, sizeof(text)) &&
-        !item_text(item, "displayIdentifier", text, sizeof(text)) &&
-        !item_text(item, "bundleIdentifier", text, sizeof(text)))
+    if (!home_item_text(item, "displayName", text, sizeof(text)) &&
+        !home_item_text(item, "displayIdentifier", text, sizeof(text)) &&
+        !home_item_text(item, "bundleIdentifier", text, sizeof(text)))
         copy_text(text, sizeof(text), "Item");
 
     utf8_to_wide(text, wide, NAME_MAX_UTF8);
@@ -144,7 +139,7 @@ static void item_base_name(plist_t item, char* dst, int dst_len)
  * Lists the items of a container. A page or the dock is one array; a folder
  * has several arrays (its pages), which we show as one list.
  */
-static int collect_items(plist_t container, ItemRef* items, int items_max)
+int home_collect(plist_t container, HomeItem* items, int items_max)
 {
     int count = 0;
     uint32_t i, k;
@@ -156,7 +151,7 @@ static int collect_items(plist_t container, ItemRef* items, int items_max)
             items[count].index = i;
             count++;
         }
-    } else if (is_folder(container)) {
+    } else if (home_is_folder(container)) {
         plist_t lists = plist_dict_get_item(container, "iconLists");
         for (k = 0; k < plist_array_get_size(lists); k++) {
             plist_t list = plist_array_get_item(lists, k);
@@ -181,9 +176,9 @@ static void item_name(const ItemRef* items, int index, char* dst, int dst_len)
     char other[NAME_MAX_UTF8];
     int same = 0, i;
 
-    item_base_name(items[index].node, dst, dst_len);
+    home_item_name(items[index].node, dst, dst_len);
     for (i = 0; i < index; i++) {
-        item_base_name(items[i].node, other, sizeof(other));
+        home_item_name(items[i].node, other, sizeof(other));
         if (_stricmp(other, dst) == 0) same++;
     }
     if (same > 0) {
@@ -252,10 +247,10 @@ static plist_t find_container(const char* path, BOOL create_page)
     if (strchr(parent + 1, '/')) return NULL;
     top = find_top(parent + 1, FALSE);
     if (!top) return NULL;
-    count = collect_items(top, items, ITEMS_MAX);
+    count = home_collect(top, items, ITEMS_MAX);
     for (i = 0; i < count; i++) {
         item_name(items, i, item, sizeof(item));
-        if (strcmp(item, name) == 0) return is_folder(items[i].node) ? items[i].node : NULL;
+        if (strcmp(item, name) == 0) return home_is_folder(items[i].node) ? items[i].node : NULL;
     }
     return NULL;
 }
@@ -272,7 +267,7 @@ static BOOL find_item(const char* path, ItemRef* found)
     if (strcmp(parent, "/") == 0) return FALSE;         /* the dock and pages are not items */
     container = find_container(parent, FALSE);
     if (!container) return FALSE;
-    count = collect_items(container, items, ITEMS_MAX);
+    count = home_collect(container, items, ITEMS_MAX);
     for (i = 0; i < count; i++) {
         item_name(items, i, item, sizeof(item));
         if (strcmp(item, name) == 0) { *found = items[i]; return TRUE; }
@@ -282,7 +277,7 @@ static BOOL find_item(const char* path, ItemRef* found)
 
 /* --------------------------------------------------------- pending folders */
 
-static plist_t new_folder(const char* name)
+plist_t home_new_folder(const char* name)
 {
     plist_t folder = plist_new_dict();
     plist_t lists = plist_new_array();
@@ -335,13 +330,13 @@ static void pending_restore(void)
         page = plist_array_get_item(g_layout, (uint32_t)g_pending[p].page);
 
         /* Something was moved into it: the device has the folder now. */
-        count = collect_items(page, items, ITEMS_MAX);
+        count = home_collect(page, items, ITEMS_MAX);
         for (i = 0; i < count && !exists; i++) {
-            item_base_name(items[i].node, name, sizeof(name));
-            exists = is_folder(items[i].node) && strcmp(name, g_pending[p].name) == 0;
+            home_item_name(items[i].node, name, sizeof(name));
+            exists = home_is_folder(items[i].node) && strcmp(name, g_pending[p].name) == 0;
         }
         if (exists) { pending_remove(p); continue; }
-        plist_array_append_item(page, new_folder(g_pending[p].name));
+        plist_array_append_item(page, home_new_folder(g_pending[p].name));
         p++;
     }
 }
@@ -423,8 +418,8 @@ static void remove_empty(plist_t layout)
 
         while (i-- > 0) {
             plist_t item = plist_array_get_item(page, i);
-            if (!is_folder(item)) continue;
-            if (collect_items(item, items, ITEMS_MAX) == 0) {
+            if (!home_is_folder(item)) continue;
+            if (home_collect(item, items, ITEMS_MAX) == 0) {
                 plist_array_remove_item(page, i);
             } else {
                 /* Also empty pages inside the folder. */
@@ -520,12 +515,12 @@ BOOL home_list(const RemotePath* rp, FindList* list, WCHAR* err, int err_len)
     } else if (layout_ensure(rp->udid, err, err_len)) {
         plist_t container = find_container(rp->path, TRUE);
         if (container) {
-            count = collect_items(container, items, ITEMS_MAX);
+            count = home_collect(container, items, ITEMS_MAX);
             for (i = 0; i < count; i++) {
                 memset(&entry, 0, sizeof(entry));
                 item_name(items, i, name, sizeof(name));
                 utf8_to_wide(name, entry.cFileName, MAX_PATH);
-                entry.dwFileAttributes = is_folder(items[i].node) ? FILE_ATTRIBUTE_DIRECTORY : FILE_ATTRIBUTE_NORMAL;
+                entry.dwFileAttributes = home_is_folder(items[i].node) ? FILE_ATTRIBUTE_DIRECTORY : FILE_ATTRIBUTE_NORMAL;
                 entry.ftLastWriteTime = order_time(i);
                 find_list_add_entry(list, &entry);
             }
@@ -546,9 +541,9 @@ BOOL home_item_bundle(const RemotePath* rp, char* bundle, int bundle_len)
 
     bundle[0] = 0;
     EnterCriticalSection(&g_home_lock);
-    if (g_layout && strcmp(g_layout_udid, rp->udid) == 0 && find_item(rp->path, &item) && !is_folder(item.node))
-        found = item_text(item.node, "bundleIdentifier", bundle, bundle_len) ||
-                item_text(item.node, "displayIdentifier", bundle, bundle_len);
+    if (g_layout && strcmp(g_layout_udid, rp->udid) == 0 && find_item(rp->path, &item) && !home_is_folder(item.node))
+        found = home_item_text(item.node, "bundleIdentifier", bundle, bundle_len) ||
+                home_item_text(item.node, "displayIdentifier", bundle, bundle_len);
     LeaveCriticalSection(&g_home_lock);
     return found;
 }
@@ -588,12 +583,12 @@ static int rename_folder(ItemRef* folder, const char* parent, const char* new_na
     path[sizeof(path) - 1] = 0;
     if (find_item(path, &other)) return FS_FILE_EXISTS;
 
-    item_base_name(folder->node, old_name, sizeof(old_name));
+    home_item_name(folder->node, old_name, sizeof(old_name));
     pending = pending_find(top_index(folder->list), old_name);
     if (pending >= 0) copy_text(g_pending[pending].name, NAME_MAX_UTF8, new_name);
     plist_dict_set_item(folder->node, "displayName", plist_new_string(new_name));
 
-    if (collect_items(folder->node, items, ITEMS_MAX) == 0) return FS_FILE_OK;
+    if (home_collect(folder->node, items, ITEMS_MAX) == 0) return FS_FILE_OK;
     return layout_write() ? FS_FILE_OK : FS_FILE_WRITEERROR;
 }
 
@@ -621,16 +616,16 @@ int home_move(const RemotePath* src, const RemotePath* dst)
     } else if (strcmp(src_parent, dst_parent) == 0) {
         /* Same place: a new name. */
         if (strcmp(src_name, dst_name) == 0) result = FS_FILE_OK;
-        else if (is_folder(item.node))       result = rename_folder(&item, src_parent, dst_name);
+        else if (home_is_folder(item.node))       result = rename_folder(&item, src_parent, dst_name);
     } else {
         target = find_container(dst_parent, TRUE);
         if (!target) {
             result = FS_FILE_NOTFOUND;
-        } else if (is_folder(item.node) && plist_get_node_type(target) != PLIST_ARRAY) {
+        } else if (home_is_folder(item.node) && plist_get_node_type(target) != PLIST_ARRAY) {
             result = FS_FILE_NOTSUPPORTED;              /* no folders inside folders */
         } else {
             /* An empty folder that moves stays pending, on its new page. */
-            if (is_folder(item.node)) {
+            if (home_is_folder(item.node)) {
                 int pending = pending_find(top_index(item.list), src_name);
                 if (pending >= 0) g_pending[pending].page = top_index(target);
             }
@@ -661,7 +656,7 @@ BOOL home_make_folder(const RemotePath* rp)
     if (layout_ensure(rp->udid, NULL, 0) && !find_item(rp->path, &existing) && g_pending_count < PENDING_MAX) {
         page = find_top(parent + 1, TRUE);
         if (page) {
-            plist_array_append_item(page, new_folder(name));
+            plist_array_append_item(page, home_new_folder(name));
             g_pending[g_pending_count].page = top_index(page);
             copy_text(g_pending[g_pending_count].name, NAME_MAX_UTF8, name);
             g_pending_count++;
@@ -682,8 +677,8 @@ BOOL home_remove_folder(const RemotePath* rp)
 
     EnterCriticalSection(&g_home_lock);
     if (g_layout && strcmp(g_layout_udid, rp->udid) == 0 && find_item(rp->path, &item) &&
-        is_folder(item.node) && collect_items(item.node, items, ITEMS_MAX) == 0) {
-        item_base_name(item.node, name, sizeof(name));
+        home_is_folder(item.node) && home_collect(item.node, items, ITEMS_MAX) == 0) {
+        home_item_name(item.node, name, sizeof(name));
         pending_remove(pending_find(top_index(item.list), name));
         plist_array_remove_item(item.list, item.index);
         removed = TRUE;
@@ -725,7 +720,7 @@ int home_download_layout(const RemotePath* rp, const WCHAR* local_name, int copy
 }
 
 /* A layout must be a list of lists; anything else is not sent to the device. */
-static BOOL layout_is_valid(plist_t layout)
+BOOL home_layout_is_valid(plist_t layout)
 {
     uint32_t i;
     if (!layout || plist_get_node_type(layout) != PLIST_ARRAY || plist_array_get_size(layout) < 2) return FALSE;
@@ -734,35 +729,37 @@ static BOOL layout_is_valid(plist_t layout)
     return TRUE;
 }
 
-/* F5 of a saved layout file into "Home screen": puts that layout back on the device. */
-int home_upload_layout(const WCHAR* local_name, const RemotePath* rp)
+/* Reads a layout from a file (text or binary property list). NULL when it is not one. */
+plist_t home_load_layout_file(const WCHAR* local_name)
 {
     HANDLE file = CreateFileW(local_name, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
     DWORD size, got = 0;
     char* data;
     plist_t layout = NULL;
-    int result;
 
-    if (file == INVALID_HANDLE_VALUE) return FS_FILE_READERROR;
+    if (file == INVALID_HANDLE_VALUE) return NULL;
     size = GetFileSize(file, NULL);
     data = (size > 0 && size < LAYOUT_SIZE_MAX) ? (char*)malloc(size) : NULL;
-    if (!data || !ReadFile(file, data, size, &got, NULL) || got != size) {
-        CloseHandle(file);
-        free(data);
-        return FS_FILE_READERROR;
+    if (data && ReadFile(file, data, size, &got, NULL) && got == size) {
+        if (size > 8 && memcmp(data, "bplist00", 8) == 0) plist_from_bin(data, size, &layout);
+        else                                               plist_from_xml(data, size, &layout);
     }
     CloseHandle(file);
-
-    /* Text (XML) or binary property list. */
-    if (size > 8 && memcmp(data, "bplist00", 8) == 0) plist_from_bin(data, size, &layout);
-    else                                               plist_from_xml(data, size, &layout);
     free(data);
-    if (!layout_is_valid(layout)) {
-        if (layout) plist_free(layout);
+    if (layout && !home_layout_is_valid(layout)) { plist_free(layout); layout = NULL; }
+    return layout;
+}
+
+/* F5 of a saved layout file into "Home screen": puts that layout back on the device. */
+int home_upload_layout(const WCHAR* local_name, const RemotePath* rp)
+{
+    plist_t layout = home_load_layout_file(local_name);
+    int result;
+
+    if (!layout) {
         show_error(tr(S_ERR_HOME_FILE));
         return FS_FILE_NOTSUPPORTED;
     }
-
     EnterCriticalSection(&g_home_lock);
     if (!layout_load(rp->udid, NULL, 0)) {              /* also: the backup is the state of right now */
         plist_free(layout);
@@ -775,4 +772,34 @@ int home_upload_layout(const WCHAR* local_name, const RemotePath* rp)
     }
     LeaveCriticalSection(&g_home_lock);
     return result;
+}
+
+/* ------------------------------------------- for the arrangement window */
+
+/* The layout of the device, freshly read. The caller frees it with plist_free(). */
+plist_t home_read_layout(const char* udid, WCHAR* err, int err_len)
+{
+    plist_t layout = NULL;
+
+    EnterCriticalSection(&g_home_lock);
+    if (layout_load(udid, err, err_len) && g_device_xml)
+        plist_from_xml(g_device_xml, g_device_xml_len, &layout);
+    LeaveCriticalSection(&g_home_lock);
+    return layout;
+}
+
+/* Sends a layout to the device, after saving the present one. 'layout' stays the caller's. */
+BOOL home_apply_layout(const char* udid, plist_t layout)
+{
+    BOOL applied = FALSE;
+
+    EnterCriticalSection(&g_home_lock);
+    if (layout_load(udid, NULL, 0)) {                   /* the backup is the state of right now */
+        plist_free(g_layout);
+        g_layout = plist_copy(layout);
+        g_pending_count = 0;
+        applied = layout_write();
+    }
+    LeaveCriticalSection(&g_home_lock);
+    return applied;
 }

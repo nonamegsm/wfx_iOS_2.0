@@ -204,7 +204,7 @@ BOOL is_reserved_name(const WCHAR* name)
 {
     static const WCHAR* reserved[] = {
         L"Root", L"User", L"Photos", L"Processed photos", L"iCloud photos", MONTHS_FOLDER,
-        L"Applications", HOME_FOLDER, SETTINGS_ITEM, INFO_ITEM
+        L"Applications", HOME_FOLDER, SETTINGS_ITEM, INFO_ITEM, ARRANGE_ITEM
     };
     int i;
     for (i = 0; i < (int)(sizeof(reserved) / sizeof(reserved[0])); i++)
@@ -303,6 +303,7 @@ void parse_path(const WCHAR* tc_path, RemotePath* out)
     else if (wcscmp(first, HOME_FOLDER) == 0)         out->mode = M_HOME;
     else if (wcscmp(first, SETTINGS_ITEM) == 0 && *rest == 0) { out->mode = M_SETTINGS; return; }
     else if (wcscmp(first, INFO_ITEM) == 0 && *rest == 0)     { out->mode = M_INFO; return; }
+    else if (wcscmp(first, ARRANGE_ITEM) == 0 && *rest == 0)  { out->mode = M_ARRANGE; return; }
     else if (wcscmp(first, L"Applications") == 0) {
         WCHAR app_name[APP_ID_MAX];
         if (*rest == 0) { out->mode = M_APPLIST; return; }

@@ -27,6 +27,8 @@ Folders
                     folder. layout.plist is the whole layout: copy it out to
                     save, copy a saved one in to restore. A backup is written
                     to %LOCALAPPDATA%\wfx_iOS before every change.
+  Arrange home screen  (Enter) window for arranging the icons: drag them
+                    between pages and folders, then "Apply to device"
   Device information  (Enter) serial number, IMEI, addresses, storage, battery
                     and everything else the device reports; copy or save as text
 

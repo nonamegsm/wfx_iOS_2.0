@@ -104,6 +104,7 @@ static void list_device_root(FindList* list, const char* udid)
 
     find_list_add_folder(list, L"Applications");
     find_list_add_folder(list, HOME_FOLDER);
+    add_pseudo_file(list, ARRANGE_ITEM);
     add_pseudo_file(list, INFO_ITEM);
 }
 
@@ -459,7 +460,8 @@ FindList* find_list_create(const WCHAR* tc_path, WCHAR* err, int err_len)
     case M_HOME:    ok = home_list(&rp, list, err, err_len); break;
     case M_INVALID:
     case M_SETTINGS:
-    case M_INFO:    break;
+    case M_INFO:
+    case M_ARRANGE: break;
     default:        ok = list_folder(&rp, list, err, err_len); break;
     }
 

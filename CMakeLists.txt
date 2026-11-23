@@ -28,6 +28,7 @@ add_library(wfx_iOS SHARED
     src/dialogs.c
     src/info.c
     src/home.c
+    src/arrange.c
     src/util.c
     src/lang.c
     src/wfx_ios.h

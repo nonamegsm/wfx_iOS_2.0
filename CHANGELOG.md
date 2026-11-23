@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.0
+
+- `Arrange home screen`: a window for arranging the icons of the device from the PC.
+  The dock, the pages and their folders are in a tree, the icons of the chosen place in a
+  list with their real icons. Drag icons onto another page or folder, or within the list
+  to change their order; make, rename and ungroup folders; add pages.
+- Nothing changes on the device until `Apply to device`; the present layout is saved to
+  a file first. A layout can also be saved to and opened from a file in the window.
+
 ## 2.9
 
 - `Home screen`: the icon layout of the device as folders - `Dock`, `Page 01`, `Page 02`, ...

@@ -30,6 +30,19 @@
 #define IDC_INFO_COPYALL 1303
 #define IDC_INFO_SAVE   1304
 
+#define IDD_ARRANGE     203
+#define IDC_A_TREE      1401
+#define IDC_A_LIST      1402
+#define IDC_A_HINT      1403
+#define IDC_A_NEWFOLDER 1404
+#define IDC_A_NEWPAGE   1405
+#define IDC_A_UNGROUP   1406
+#define IDC_A_RENAME    1407
+#define IDC_A_RELOAD    1408
+#define IDC_A_LOAD      1409
+#define IDC_A_SAVE      1410
+#define IDC_A_APPLY     1411
+
 /* Labels that are translated when a dialog opens (see dialogs.c) */
 #define IDC_GRP_DEVICE  1201
 #define IDC_LBL_USE     1202

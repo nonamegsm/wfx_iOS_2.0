@@ -54,6 +54,26 @@ BEGIN
     DEFPUSHBUTTON   "Close", IDCANCEL, 321, 279, 52, 14
 END
 
+/* Home screen arrangement: a resizable window; arrange.c places the controls. */
+IDD_ARRANGE DIALOGEX 0, 0, 520, 340
+STYLE DS_SETFONT | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MAXIMIZEBOX | WS_CLIPCHILDREN
+CAPTION "Arrange home screen"
+FONT 9, "Segoe UI", 400, 0, 0x1
+BEGIN
+    PUSHBUTTON      "New &folder", IDC_A_NEWFOLDER, 7, 7, 70, 14
+    PUSHBUTTON      "New &page", IDC_A_NEWPAGE, 81, 7, 70, 14
+    PUSHBUTTON      "&Ungroup folder", IDC_A_UNGROUP, 155, 7, 70, 14
+    PUSHBUTTON      "Re&name folder", IDC_A_RENAME, 229, 7, 70, 14
+    CONTROL         "", IDC_A_TREE, "SysTreeView32", TVS_HASBUTTONS | TVS_HASLINES | TVS_LINESATROOT | TVS_SHOWSELALWAYS | TVS_EDITLABELS | WS_BORDER | WS_TABSTOP, 7, 26, 130, 270
+    CONTROL         "", IDC_A_LIST, "SysListView32", LVS_ICON | LVS_AUTOARRANGE | LVS_SHOWSELALWAYS | WS_BORDER | WS_TABSTOP, 141, 26, 372, 270
+    LTEXT           "", IDC_A_HINT, 7, 300, 506, 10
+    PUSHBUTTON      "&Read from device", IDC_A_RELOAD, 7, 319, 76, 14
+    PUSHBUTTON      "&Open file...", IDC_A_LOAD, 87, 319, 66, 14
+    PUSHBUTTON      "&Save to file...", IDC_A_SAVE, 157, 319, 66, 14
+    PUSHBUTTON      "&Apply to device", IDC_A_APPLY, 373, 319, 82, 14
+    PUSHBUTTON      "Close", IDCANCEL, 461, 319, 52, 14
+END
+
 /* File properties: read-only fields, so that values can be selected and copied. */
 IDD_PROPERTIES DIALOGEX 0, 0, 272, 161
 STYLE DS_SETFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU

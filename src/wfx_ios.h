@@ -73,6 +73,7 @@
 #define PLUGIN_TITLE    L"iOS"             /* message box caption */
 #define INI_SECTION     "wfx_iOS"
 #define SETTINGS_ITEM   L"Settings"        /* pseudo file in the plugin root */
+#define ARRANGE_ITEM    L"Arrange home screen" /* pseudo file: opens the arrangement window */
 #define INFO_ITEM       L"Device information"  /* pseudo file in a device's root */
 #define ICLOUD_DIR      "/PhotoData/CPLAssets"
 #define MONTHS_FOLDER   L"Photos by month"
@@ -208,6 +209,24 @@ typedef enum {
     S_ERR_HOME_READ,
     S_ERR_HOME_WRITE,
     S_ERR_HOME_FILE,
+    S_DLG_ARRANGE,
+    S_A_NEWFOLDER,
+    S_A_NEWPAGE,
+    S_A_UNGROUP,
+    S_A_RENAME,
+    S_A_RELOAD,
+    S_A_LOAD,
+    S_A_SAVE,
+    S_A_APPLY,
+    S_A_HINT,
+    S_A_CHANGED,
+    S_A_DOCK,
+    S_A_PAGE,
+    S_A_FOLDER_NAME,
+    S_A_SELECT_FIRST,
+    S_A_DISCARD,
+    S_A_APPLY_QUESTION,
+    S_A_APPLIED,
     S_COUNT
 } StringId;
 
@@ -229,7 +248,8 @@ typedef enum {
     M_APP,          /* inside one application */
     M_SETTINGS,     /* \Settings */
     M_INFO,         /* \Device information */
-    M_HOME          /* \Home screen\...: path is "/Page 01/Folder/Item" */
+    M_HOME,         /* \Home screen\...: path is "/Page 01/Folder/Item" */
+    M_ARRANGE       /* \Arrange home screen */
 } PathMode;
 
 typedef struct {
@@ -381,6 +401,28 @@ BOOL home_is_layout_file(const RemotePath* rp);             /* "\Home screen\<na
 int  home_download_layout(const RemotePath* rp, const WCHAR* local_name, int copy_flags);
 int  home_upload_layout(const WCHAR* local_name, const RemotePath* rp);
 BOOL home_item_bundle(const RemotePath* rp, char* bundle, int bundle_len);
+
+/* The same layout for the arrangement window (arrange.c). A container is a page or the
+   dock (an array) or a folder (a dictionary); its items are counted through all its lists. */
+typedef struct {
+    plist_t  node;                  /* the item */
+    plist_t  list;                  /* array that contains it */
+    uint32_t index;                 /* position in that array */
+} HomeItem;
+
+plist_t home_read_layout(const char* udid, WCHAR* err, int err_len);   /* caller: plist_free() */
+BOOL    home_apply_layout(const char* udid, plist_t layout);          /* saves a backup first */
+BOOL    home_layout_is_valid(plist_t layout);
+BOOL    home_is_folder(plist_t item);
+int     home_collect(plist_t container, HomeItem* items, int items_max);
+void    home_item_name(plist_t item, char* dst, int dst_len);          /* name on the device, UTF-8 */
+BOOL    home_item_text(plist_t item, const char* key, char* dst, int dst_len);
+plist_t home_new_folder(const char* name);
+plist_t home_load_layout_file(const WCHAR* local_name);         /* NULL: not a layout */
+
+void show_arrange(HWND parent, const char* udid);           /* arrange.c: the arrangement window */
+HICON icons_application(const char* udid, const char* bundle, int size);   /* NULL: none; caller destroys */
+HICON icons_stock(int stock_id, BOOL small_icon);                          /* NULL: none; caller destroys */
 void show_file_properties(HWND parent, const WCHAR* remote_name, const RemotePath* rp);
 
 #endif /* WFX_IOS_H */

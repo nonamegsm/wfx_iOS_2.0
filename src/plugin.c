@@ -326,12 +326,14 @@ int __stdcall FsExecuteFileW(HWND main_window, WCHAR* remote_name, WCHAR* verb)
     if (_wcsicmp(verb, L"open") == 0) {
         if (rp.mode == M_SETTINGS) { show_settings(main_window); return FS_EXEC_OK; }
         if (rp.mode == M_INFO)     { show_device_info(main_window, rp.udid); return FS_EXEC_OK; }
+        if (rp.mode == M_ARRANGE)  { show_arrange(main_window, rp.udid); return FS_EXEC_OK; }
         if (rp.mode == M_HOME && !home_is_layout_file(&rp)) return FS_EXEC_OK;     /* an application: nothing to open */
         return FS_EXEC_YOURSELF;                    /* Total Commander downloads and opens the file */
     }
     if (_wcsnicmp(verb, L"properties", 10) == 0) {
         if (rp.mode == M_TOP || rp.mode == M_SETTINGS) show_settings(main_window);
         else if (rp.mode == M_INFO) show_device_info(main_window, rp.udid);
+        else if (rp.mode == M_ARRANGE || rp.mode == M_HOME) show_arrange(main_window, rp.udid);
         else if (is_afc_mode(rp.mode)) show_file_properties(main_window, remote_name, &rp);
         return FS_EXEC_OK;
     }

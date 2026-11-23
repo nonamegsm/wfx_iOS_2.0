@@ -235,6 +235,25 @@ done:
     return icon;
 }
 
+/* For the arrangement window: an application's icon in the given size. */
+HICON icons_application(const char* udid, const char* bundle, int size)
+{
+    unsigned char* png = NULL;
+    uint32_t png_size = 0;
+    HICON icon = NULL;
+
+    if (get_application_png(udid, bundle, &png, &png_size)) {
+        icon = png_to_icon(png, png_size, size);
+        free(png);
+    }
+    return icon;
+}
+
+HICON icons_stock(int stock_id, BOOL small_icon)
+{
+    return load_stock_icon(stock_id, small_icon);
+}
+
 /* ------------------------------------------------------------ entry point */
 
 /*
@@ -271,6 +290,7 @@ int extract_icon(WCHAR* remote_name, int extract_flags, HICON* icon)
     case M_APPLIST:   stock_id = ICON_APPLICATION; break;
     case M_SETTINGS:  stock_id = ICON_SETTINGS;    break;
     case M_INFO:      stock_id = ICON_INFO;        break;
+    case M_ARRANGE:   stock_id = ICON_STACK;       break;
     case M_APP:
         if (strcmp(rp.path, "/") == 0) {
             unsigned char* png = NULL;

@@ -66,6 +66,7 @@ Then open *Network Neighborhood* -> *iOS*.
 | `Photos by month` | the whole photo library, one folder per month (`2026-11`), with original file names |
 | `Applications` | documents of apps that enable file sharing, by app name |
 | `Home screen` | the icons of the device: dock, pages and folders; move items to rearrange them |
+| `Arrange home screen` | not a folder: Enter opens the window for arranging the icons |
 | `Device information` | not a folder: Enter opens a window with everything the device reports |
 
 With several devices connected, the root shows one folder per device (named after the
@@ -76,8 +77,31 @@ only that one.
 device selection with device information, and the options below. Alt+Enter on a file shows
 its properties.
 
-## Home screen
+## Arrange home screen
 
+Enter on `Arrange home screen` (or Alt+Enter on the `Home screen` folder) opens a window made
+for tidying up a device with many applications:
+
+- left: the dock, every page, and the folders on each page;
+- right: the icons of the place chosen on the left, in their order on the screen.
+
+| Action | How |
+|---|---|
+| Move icons to another page or folder | select them (Ctrl / Shift for several), drag them onto it in the tree |
+| Change the order | drag within the list; the icons land before the one they are dropped on |
+| New folder | select the icons for it, `New folder`, type its name |
+| Rename / ungroup a folder | open or select it, `Rename folder` / `Ungroup folder` |
+| New page | `New page`, then drag icons onto it |
+| Open a folder | double click it in the list |
+
+The window works on a copy. `Apply to device` sends the arrangement in one step, after the
+present one was saved to `%LOCALAPPDATA%\wfx_iOS\home-screen-<date>-<time>.plist`; the window
+then shows what the device made of it. `Save to file` / `Open file` keep and bring back
+arrangements, `Read from device` starts over. Empty folders and pages are not sent.
+
+## Home screen as folders
+
+The same layout is also available in the file panels, for quick moves without the window.
 `Home screen` shows where the icons are on the device:
 
 ```
@@ -231,7 +255,8 @@ The plugin is plain C (C99 style), one module per job:
 | `src/columns.c` | extra file details for custom columns |
 | `src/dialogs.c` | settings dialog, file properties |
 | `src/info.c` | device information window |
-| `src/home.c` | home screen layout as folders |
+| `src/home.c` | home screen layout: reading, writing, backup, and as folders |
+| `src/arrange.c` | the "Arrange home screen" window |
 | `src/util.c` | strings, time, ini file, log file, error box |
 | `src/lang.c` | all user-visible texts in four languages |
 | `src/wfx_ios.h` | shared declarations and an overview |
