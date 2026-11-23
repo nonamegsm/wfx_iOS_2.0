@@ -78,7 +78,9 @@ Section `[wfx_iOS]` in Total Commander's `fsplugin.ini`:
 | `ShowAllApps=1` | list all user apps and try their full container first (developer-signed apps only) |
 | `AppNames=0` | list applications by bundle id instead of by name |
 | `LogFile=<path>` | write the trace to this file instead of `%TEMP%\wfx_iOS.log` |
-| `Debug=0` | turn off the protocol trace written to `%TEMP%\wfx_iOS.log` (on by default during the beta) |
+| `Log=0` | turn off the short plugin log written to `%TEMP%\wfx_iOS.log` |
+| `Debug=1` | add the full protocol trace to the log (large and slow; only for bug reports) |
+| `AllowWiFi=1` | also use devices reachable over Wi-Fi sync when none is on USB (connecting can be slow) |
 
 ## Changes from 1.3
 
@@ -88,7 +90,8 @@ Section `[wfx_iOS]` in Total Commander's `fsplugin.ini`:
 - Edited-photo lookup also covers HEIC and PNG
 - Resume for downloads and uploads; direct device-to-device copy
 - `Root` is shown only when the device offers afc2
-- USB is preferred; Wi-Fi-synced devices are used when no USB device is connected
+- USB only by default; Wi-Fi-synced devices are optional (`AllowWiFi=1`)
+- Unplugging the device no longer hangs the plugin
 - Error messages say which step failed, and a trace file is written
 - The two dialogs of 1.3 are plain message boxes for now
 
@@ -105,7 +108,7 @@ Photos missing from `Photos`: only pictures taken on the device are in `/DCIM`. 
 arrived through iCloud Photos are under `iCloud photos`, and with "Optimise Storage" turned on
 many originals are not on the device at all.
 
-For anything else, attach `%TEMP%\wfx_iOS.log` to an issue. The log contains device names,
+For anything else, set `Debug=1`, reproduce the problem, and attach `%TEMP%\wfx_iOS.log` to an issue. The log contains device names,
 identifiers and file names, so check it before posting.
 
 ## Build

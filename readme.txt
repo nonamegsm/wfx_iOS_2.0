@@ -31,7 +31,9 @@ Settings (section [wfx_iOS] in Total Commander's fsplugin.ini)
                            (only works for developer-signed apps)
   AppNames=0               list applications by bundle id instead of by name
   LogFile=<path>           trace file (default %TEMP%\wfx_iOS.log)
-  Debug=0                  turn the trace off
+  Log=0                    turn the short plugin log off
+  Debug=1                  add the full protocol trace (large, slow)
+  AllowWiFi=1              also use devices reachable over Wi-Fi sync
 
 Build
   Run build.bat (Visual Studio C++ + git required). Dependencies come from vcpkg.

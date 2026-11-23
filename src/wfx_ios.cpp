@@ -28,6 +28,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <atomic>
 #include <algorithm>
 
 #include <libimobiledevice/libimobiledevice.h>
@@ -80,6 +81,8 @@ static std::mutex            g_devLock;   // guards g_device
 static DevicePtr             g_device;
 static std::recursive_mutex  g_opLock;    // serialises foreground ops + cache
 static std::map<std::string, AfcPtr> g_cache;
+static std::atomic<bool>     g_dropCache(false);   // device vanished: cached connections are dead
+static std::atomic<bool>     g_deviceSeen(false);  // reset once the "no device" box was shown
 
 // ---------------------------------------------------------------- helpers
 
@@ -135,8 +138,15 @@ static void show_error(const std::wstring& msg)
     {
         std::lock_guard<std::mutex> l(m);
         DWORD now = GetTickCount();
-        if (msg == last && now - lastTick < 5000) return;   // do not nag on refresh
+        bool same = msg == last;
+        // One box per problem: not again for the same text within 30 s, and not at all
+        // while the device stays disconnected (Total Commander retries parent folders).
+        bool noDevice = msg.compare(0, 13, L"No iOS device") == 0 || msg.compare(0, 12, L"Cannot reach") == 0 ||
+                        msg.compare(0, 16, L"Preferred device") == 0 || msg.compare(0, 25, L"Could not open the device") == 0;
+        if (same && (now - lastTick < 30000 || (noDevice && !g_deviceSeen))) return;
+        if (!same && now - lastTick < 1500) { last = msg; return; }
         last = msg; lastTick = now;
+        if (noDevice) g_deviceSeen = false;
     }
     if (g_logW) g_logW(g_pluginNr, MSGTYPE_IMPORTANTERROR, (WCHAR*)msg.c_str());
     MessageBoxW(GetActiveWindow(), msg.c_str(), PLUGIN_TITLE, MB_OK | MB_ICONWARNING);
@@ -251,8 +261,9 @@ static DevicePtr get_device(bool fresh, std::wstring* err)
     static bool wsa = false;
     if (!wsa) {
         WSADATA wd; WSAStartup(MAKEWORD(2, 2), &wd); wsa = true;
-        // Protocol trace in %TEMP%\\wfx_iOS.log (Debug=0 in the ini turns it off).
-        if (ini_bool("Debug", true)) {
+        // %TEMP%\\wfx_iOS.log: a short plugin log by default (Log=0 turns it off);
+        // Debug=1 adds the full libimobiledevice protocol trace, which is large and slow.
+        if (ini_bool("Log", true)) {
             WCHAR tmp[MAX_PATH] = L"";
             GetTempPathW(MAX_PATH, tmp);
             std::wstring log = std::wstring(tmp) + L"wfx_iOS.log";
@@ -260,15 +271,34 @@ static DevicePtr get_device(bool fresh, std::wstring* err)
             if (!custom.empty()) log = to_wide(custom, CP_ACP);
             if (_wfreopen(log.c_str(), L"w", stderr)) {
                 setvbuf(stderr, nullptr, _IONBF, 0);
-                idevice_set_debug_level(1);
-                libusbmuxd_set_debug_level(1);
+                if (ini_bool("Debug", false)) {
+                    idevice_set_debug_level(1);
+                    libusbmuxd_set_debug_level(1);
+                }
                 g_trace = true;
                 OSVERSIONINFOW os; memset(&os, 0, sizeof(os)); os.dwOSVersionInfoSize = sizeof(os);
                 trace("wfx_iOS 2.0 (built " __DATE__ " " __TIME__ ", %d-bit), ini %s", (int)(sizeof(void*) * 8), g_ini.c_str());
             }
         }
     }
-    if (g_device && !fresh) return g_device;
+    bool wifi = ini_bool("AllowWiFi", false);
+    if (g_device && !fresh) {
+        // Cheap check with the local service so a pulled cable fails at once
+        // instead of waiting on a dead connection.
+        static DWORD lastCheck = 0;
+        DWORD now = GetTickCount();
+        if (now - lastCheck < 700) return g_device;
+        usbmuxd_device_info_t* list = nullptr;
+        int n = usbmuxd_get_device_list(&list);
+        bool present = false;
+        for (int i = 0; i < n; i++)
+            if (g_device->udid == list[i].udid &&
+                (list[i].conn_type == CONNECTION_TYPE_NETWORK) == g_device->network) present = true;
+        if (list) usbmuxd_device_list_free(&list);
+        if (present) { lastCheck = now; return g_device; }
+        trace("device %s is gone", g_device->udid.c_str());
+        g_dropCache = true;
+    }
     g_device.reset();
 
     std::string preferred = ini_string("PreferredDevice");
@@ -276,7 +306,7 @@ static DevicePtr get_device(bool fresh, std::wstring* err)
     const char* want = preferred.empty() ? nullptr : preferred.c_str();
     bool network = false;
     idevice_error_t e = idevice_new_with_options(&dev, want, IDEVICE_LOOKUP_USBMUX);   // USB first
-    if (e != IDEVICE_E_SUCCESS || !dev) {
+    if ((e != IDEVICE_E_SUCCESS || !dev) && wifi) {      // Wi-Fi only on request: connecting can block for long
         dev = nullptr; network = true;
         e = idevice_new_with_options(&dev, want, IDEVICE_LOOKUP_NETWORK);
     }
@@ -289,8 +319,8 @@ static DevicePtr get_device(bool fresh, std::wstring* err)
                 *err = L"Cannot reach the Apple Mobile Device Service (usbmuxd, 127.0.0.1:27015), error " + std::to_wstring(n) +
                        L".\nInstall Apple Mobile Device Support and make sure the \"Apple Mobile Device Service\" is running.";
             } else if (n == 0) {
-                *err = L"The Apple Mobile Device Service is running but reports no connected device.\n"
-                       L"Check the cable, unlock the device, and check that Windows shows it as \"Apple Mobile Device USB\" in Device Manager.";
+                *err = L"No iOS device is connected.\n"
+                       L"Connect and unlock the device. (The Apple Mobile Device Service is running but reports no device.)";
             } else {
                 std::wstring seen;
                 for (int i = 0; i < n; i++) seen += L"\n  " + to_wide(list[i].udid) + (list[i].conn_type == CONNECTION_TYPE_NETWORK ? L" (network)" : L" (USB)");
@@ -307,6 +337,7 @@ static DevicePtr get_device(bool fresh, std::wstring* err)
     char* udid = nullptr;
     if (idevice_get_udid(dev, &udid) == IDEVICE_E_SUCCESS && udid) { d->udid = udid; free(udid); }
     g_device = d;
+    g_deviceSeen = true;
     trace("device %s opened over %s", d->udid.c_str(), network ? "Wi-Fi" : "USB");
     return d;
 }
@@ -455,6 +486,8 @@ static afc_error_t with_afc(const RPath& rp, std::wstring* err, Fn fn)
     std::string key = cache_key(rp);
     afc_error_t r = AFC_E_MUX_ERROR;
     for (int attempt = 0; attempt < 2; attempt++) {
+        if (!get_device(false, err)) { g_cache.clear(); g_dropCache = false; return AFC_E_MUX_ERROR; }
+        if (g_dropCache.exchange(false)) g_cache.clear();
         AfcPtr a;
         auto it = g_cache.find(key);
         if (it != g_cache.end()) a = it->second;

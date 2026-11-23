@@ -9,6 +9,7 @@ vcpkg_from_github(
         002_fix_static_build.patch
         003_fix_api.patch
         004_fix_tools_msvc.patch
+        005_fix_ssl_read_spin.patch
 )
 
 file(COPY "${CMAKE_CURRENT_LIST_DIR}/CMakeLists.txt" DESTINATION "${SOURCE_PATH}")
