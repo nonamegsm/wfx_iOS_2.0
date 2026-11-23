@@ -58,6 +58,7 @@ struct Device {
     std::string udid;
     int iosMajor = 0;
     int hasAfc2 = -1;            // -1 unknown, 0 no, 1 yes
+    bool network = false;        // reached over Wi-Fi instead of USB
     ~Device() { if (dev) idevice_free(dev); }
 };
 typedef std::shared_ptr<Device> DevicePtr;
@@ -229,14 +230,32 @@ static DevicePtr get_device(bool fresh, std::wstring* err)
 {
     std::lock_guard<std::mutex> l(g_devLock);
     static bool wsa = false;
-    if (!wsa) { WSADATA wd; WSAStartup(MAKEWORD(2, 2), &wd); wsa = true; }
+    if (!wsa) {
+        WSADATA wd; WSAStartup(MAKEWORD(2, 2), &wd); wsa = true;
+        // Protocol trace in %TEMP%\\wfx_iOS.log (Debug=0 in the ini turns it off).
+        if (ini_bool("Debug", true)) {
+            WCHAR tmp[MAX_PATH] = L"";
+            GetTempPathW(MAX_PATH, tmp);
+            std::wstring log = std::wstring(tmp) + L"wfx_iOS.log";
+            if (_wfreopen(log.c_str(), L"w", stderr)) {
+                setvbuf(stderr, nullptr, _IONBF, 0);
+                idevice_set_debug_level(1);
+                libusbmuxd_set_debug_level(1);
+            }
+        }
+    }
     if (g_device && !fresh) return g_device;
     g_device.reset();
 
     std::string preferred = ini_string("PreferredDevice");
     idevice_t dev = nullptr;
-    enum idevice_options opts = (enum idevice_options)(IDEVICE_LOOKUP_USBMUX | IDEVICE_LOOKUP_NETWORK);
-    idevice_error_t e = idevice_new_with_options(&dev, preferred.empty() ? nullptr : preferred.c_str(), opts);
+    const char* want = preferred.empty() ? nullptr : preferred.c_str();
+    bool network = false;
+    idevice_error_t e = idevice_new_with_options(&dev, want, IDEVICE_LOOKUP_USBMUX);   // USB first
+    if (e != IDEVICE_E_SUCCESS || !dev) {
+        dev = nullptr; network = true;
+        e = idevice_new_with_options(&dev, want, IDEVICE_LOOKUP_NETWORK);
+    }
     if (e != IDEVICE_E_SUCCESS || !dev) {
         if (err) {
             // Ask usbmuxd directly so the message says which step failed.
@@ -260,6 +279,7 @@ static DevicePtr get_device(bool fresh, std::wstring* err)
     }
     DevicePtr d = std::make_shared<Device>();
     d->dev = dev;
+    d->network = network;
     char* udid = nullptr;
     if (idevice_get_udid(dev, &udid) == IDEVICE_E_SUCCESS && udid) { d->udid = udid; free(udid); }
     g_device = d;
@@ -272,7 +292,18 @@ static bool start_service(const DevicePtr& d, const char* name, lockdownd_servic
     lockdownd_client_t lc = nullptr;
     lockdownd_error_t le = lockdownd_client_new_with_handshake(d->dev, &lc, PLUGIN_LABEL);
     if (le != LOCKDOWN_E_SUCCESS || !lc) {
-        if (err) *err = lockdown_message(le);
+        if (err) {
+            *err = lockdown_message(le);
+            if (le == LOCKDOWN_E_MUX_ERROR) {
+                // Tell a refused connection apart from a failure later in the handshake.
+                idevice_connection_t c = nullptr;
+                idevice_error_t ce = idevice_connect(d->dev, 62078, &c);
+                if (c) idevice_disconnect(c);
+                *err += std::wstring(L"\n\nDevice ") + to_wide(d->udid) + (d->network ? L" over Wi-Fi" : L" over USB") +
+                        L"; raw connection to lockdownd: " + (ce == IDEVICE_E_SUCCESS ? std::wstring(L"OK") : L"failed (" + std::to_wstring((int)ce) + L")") +
+                        L".\nA trace is written to %TEMP%\\wfx_iOS.log.";
+            }
+        }
         return false;
     }
     if (!d->iosMajor) {

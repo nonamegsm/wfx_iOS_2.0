@@ -52,6 +52,7 @@ Section `[wfx_iOS]` in Total Commander's `fsplugin.ini`:
 |---|---|
 | `PreferredDevice=<UDID>` | use only this device (empty = any connected device) |
 | `ShowAllApps=1` | list all user apps and try their full container first (developer-signed apps only) |
+| `Debug=0` | turn off the protocol trace written to `%TEMP%\wfx_iOS.log` (on by default during the beta) |
 
 ## Changes from 1.3
 
