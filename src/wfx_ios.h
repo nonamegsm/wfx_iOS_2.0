@@ -14,6 +14,7 @@
  *   paths.c     Total Commander path -> device path, application names
  *   listing.c   directory listings (FsFindFirst / FsFindNext)
  *   transfer.c  download, upload, copy on the device
+ *   photos.c    "Photos by month" (reads the device's photo database)
  *   icons.c     folder and application icons
  *   columns.c   extra file details for custom columns
  *   dialogs.c   settings dialog, file properties
@@ -26,6 +27,7 @@
  *   \Photos                com.apple.afc, rooted at /DCIM
  *   \Processed photos      like Photos, downloads prefer the edited picture
  *   \iCloud photos         com.apple.afc, rooted at /PhotoData/CPLAssets
+ *   \Photos by month       the whole library by month, see photos.c
  *   \Applications\<app>    com.apple.mobile.house_arrest (app documents)
  *   \Settings              pseudo file, opens the settings dialog
  *
@@ -70,6 +72,7 @@
 #define INI_SECTION     "wfx_iOS"
 #define SETTINGS_ITEM   L"Settings"        /* pseudo file in the plugin root */
 #define ICLOUD_DIR      "/PhotoData/CPLAssets"
+#define MONTHS_FOLDER   L"Photos by month"
 
 #define AFC_PATH_MAX    2048               /* device path, UTF-8 */
 #define TC_PATH_MAX     1024               /* Total Commander path, UTF-16 */
@@ -122,6 +125,7 @@ typedef enum {
     M_PHOTOS,       /* \Photos */
     M_PROCESSED,    /* \Processed photos */
     M_ICLOUD,       /* \iCloud photos */
+    M_MONTHS,       /* \Photos by month and its month folders (files inside become M_USER) */
     M_APPLIST,      /* \Applications */
     M_APP,          /* inside one application */
     M_SETTINGS      /* \Settings */
@@ -221,6 +225,8 @@ typedef struct {
 } FindList;
 
 FindList* find_list_create(const WCHAR* tc_path, WCHAR* err, int err_len);  /* NULL on failure */
+void      find_list_add_entry(FindList* list, const WIN32_FIND_DATAW* entry);
+void      find_list_add_folder(FindList* list, const WCHAR* name);   /* a folder without date */
 void      find_list_free(FindList* list);
 BOOL      apps_load(const char* udid, WCHAR* err, int err_len);   /* fills the application table */
 void      devices_load(void);                               /* fills the device folder table */
@@ -235,6 +241,14 @@ int copy_on_device(const WCHAR* old_name, const WCHAR* new_name, const RemotePat
 
 void icons_init(void);                                      /* called once from DllMain */
 int  extract_icon(WCHAR* remote_name, int extract_flags, HICON* icon);
+
+/* --------------------------------------------------------------- photos.c */
+
+void photos_init(void);                                     /* called once from DllMain */
+BOOL photos_available(const char* udid);                    /* the device has a photo database */
+BOOL photos_list_months(const char* udid, FindList* list, WCHAR* err, int err_len);
+BOOL photos_list_month(const char* udid, const char* month_text, FindList* list, WCHAR* err, int err_len);
+BOOL photos_resolve(const char* udid, const char* month_text, const char* name, char* real, int real_len);
 
 /* -------------------------------------------------------------- columns.c */
 

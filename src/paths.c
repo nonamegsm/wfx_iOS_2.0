@@ -203,7 +203,8 @@ void connection_key(const RemotePath* rp, char* key, int key_len)
 BOOL is_reserved_name(const WCHAR* name)
 {
     static const WCHAR* reserved[] = {
-        L"Root", L"User", L"Photos", L"Processed photos", L"iCloud photos", L"Applications", SETTINGS_ITEM
+        L"Root", L"User", L"Photos", L"Processed photos", L"iCloud photos", MONTHS_FOLDER,
+        L"Applications", SETTINGS_ITEM
     };
     int i;
     for (i = 0; i < (int)(sizeof(reserved) / sizeof(reserved[0])); i++)
@@ -221,6 +222,37 @@ static const WCHAR* next_component(const WCHAR* path, WCHAR* component, int comp
     }
     component[len] = 0;
     return path;                    /* points at '\' or at the terminator */
+}
+
+/*
+ * Paths under "\Photos by month". 'rest' is what follows that folder:
+ *     ""                      the list of months        M_MONTHS, path "/"
+ *     "\2026-11"              one month                 M_MONTHS, path "/2026-11"
+ *     "\2026-11\IMG_1.JPG"    a picture: becomes M_USER with the real path on
+ *                             the device, so that it behaves like any other file
+ */
+static void parse_months_path(const WCHAR* rest, RemotePath* out)
+{
+    WCHAR month[32], name[MAX_PATH];
+    char month_utf8[64], name_utf8[MAX_PATH * 3];
+
+    out->mode = M_MONTHS;
+    if (*rest == 0) return;                             /* path is already "/" */
+
+    rest = next_component(rest + 1, month, 32);
+    wide_to_utf8(month, month_utf8, sizeof(month_utf8));
+    if (*rest == 0) {
+        _snprintf(out->path, AFC_PATH_MAX - 1, "/%s", month_utf8);
+        out->path[AFC_PATH_MAX - 1] = 0;
+        return;
+    }
+
+    rest = next_component(rest + 1, name, MAX_PATH);
+    wide_to_utf8(name, name_utf8, sizeof(name_utf8));
+    if (*rest == 0 && photos_resolve(out->udid, month_utf8, name_utf8, out->path, AFC_PATH_MAX))
+        out->mode = M_USER;
+    else
+        out->mode = M_INVALID;                          /* nothing lives deeper than a picture */
 }
 
 /*
@@ -267,6 +299,7 @@ void parse_path(const WCHAR* tc_path, RemotePath* out)
     else if (wcscmp(first, L"Photos") == 0)           { out->mode = M_PHOTOS;    prefix = "/DCIM"; }
     else if (wcscmp(first, L"Processed photos") == 0) { out->mode = M_PROCESSED; prefix = "/DCIM"; }
     else if (wcscmp(first, L"iCloud photos") == 0)    { out->mode = M_ICLOUD;    prefix = ICLOUD_DIR; }
+    else if (wcscmp(first, MONTHS_FOLDER) == 0)       { parse_months_path(rest, out); return; }
     else if (wcscmp(first, SETTINGS_ITEM) == 0 && *rest == 0) { out->mode = M_SETTINGS; return; }
     else if (wcscmp(first, L"Applications") == 0) {
         WCHAR app_name[APP_ID_MAX];

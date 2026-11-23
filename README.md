@@ -17,7 +17,7 @@ Domo, if you would like anything here changed, credited differently or taken
 down, please open an issue.
 
 Built on [libimobiledevice](https://libimobiledevice.org/), libusbmuxd, libplist,
-libimobiledevice-glue and [OpenSSL](https://www.openssl.org/).
+libimobiledevice-glue, [OpenSSL](https://www.openssl.org/) and [SQLite](https://sqlite.org/).
 
 ## Requirements
 
@@ -63,6 +63,7 @@ Then open *Network Neighborhood* -> *iOS*.
 | `Photos` | `/DCIM` |
 | `Processed photos` | `/DCIM`, but downloads fetch the edited version of a photo when one exists |
 | `iCloud photos` | photos synced from iCloud Photos (`/PhotoData/CPLAssets`); shown only when the device has them |
+| `Photos by month` | the whole photo library, one folder per month (`2026-11`), with original file names |
 | `Applications` | documents of apps that enable file sharing, by app name |
 
 With several devices connected, the root shows one folder per device (named after the
@@ -72,6 +73,18 @@ only that one.
 `Settings` at the plugin root (Enter), or Alt+Enter on the root, opens the settings dialog:
 device selection with device information, and the options below. Alt+Enter on a file shows
 its properties.
+
+## Photos by month
+
+Pictures are stored on the device in technical folders (`100APPLE`, `group123`) under generated
+names. `Photos by month` reads the Photos database of the device (`/PhotoData/Photos.sqlite`),
+and shows every picture and video under the month it was taken, with its original name. The
+database is copied to a temporary folder, read, and the copy is deleted at once. It is read
+again at most every five minutes.
+
+Only files that are really on the device are listed. With "Optimise Storage" turned on, many
+originals exist only in iCloud and cannot be reached over USB. Files inside a month folder can
+be copied and deleted like any other file; new files cannot be put there.
 
 ## Custom columns
 
@@ -145,6 +158,7 @@ The plugin is plain C (C99 style), one module per job:
 | `src/paths.c` | Total Commander path to device path, application names |
 | `src/listing.c` | directory listings |
 | `src/transfer.c` | download, upload, copy on the device |
+| `src/photos.c` | `Photos by month`, reads the device's photo database |
 | `src/icons.c` | folder and application icons |
 | `src/columns.c` | extra file details for custom columns |
 | `src/dialogs.c` | settings dialog, file properties |

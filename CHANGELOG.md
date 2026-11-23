@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.5
+
+- `Photos by month`: the whole photo library grouped by the month a picture was taken,
+  with the original file names. Read from the device's photo database (SQLite).
+
 ## 2.4
 
 - Custom columns: creation time, type, hard links, blocks, link target, device path

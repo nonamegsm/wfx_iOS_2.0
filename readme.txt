@@ -20,6 +20,7 @@ Folders
   Photos            /DCIM
   Processed photos  /DCIM, but downloads fetch the edited version of a photo when one exists
   iCloud photos     photos synced from iCloud Photos (shown only when present)
+  Photos by month   the whole photo library, one folder per month
   Applications      documents of apps that enable file sharing, by app name
 
 "Settings" at the plugin root (Enter), or Alt+Enter on the root, opens the
@@ -41,3 +42,4 @@ Build
 Based on these open-source libraries:
   libimobiledevice, libusbmuxd, libplist, libimobiledevice-glue (https://libimobiledevice.org/)
   OpenSSL (https://www.openssl.org/)
+  SQLite (https://sqlite.org/)

@@ -255,6 +255,7 @@ int extract_icon(WCHAR* remote_name, int extract_flags, HICON* icon)
     case M_PHOTOS:    if (strcmp(rp.path, "/DCIM") == 0)    stock_id = ICON_CAMERA;      break;
     case M_PROCESSED: if (strcmp(rp.path, "/DCIM") == 0)    stock_id = ICON_IMAGE_FILES; break;
     case M_ICLOUD:    if (strcmp(rp.path, ICLOUD_DIR) == 0) stock_id = ICON_WORLD;       break;
+    case M_MONTHS:    if (strcmp(rp.path, "/") == 0)        stock_id = ICON_IMAGE_FILES; break;
     case M_APPLIST:   stock_id = ICON_APPLICATION; break;
     case M_SETTINGS:  stock_id = ICON_SETTINGS;    break;
     case M_APP:

@@ -18,6 +18,7 @@ BOOL APIENTRY DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved)
         paths_init();
         icons_init();
         columns_init();
+        photos_init();
     }
     return TRUE;
 }

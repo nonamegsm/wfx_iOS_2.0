@@ -16,7 +16,7 @@ void find_list_free(FindList* list)
 }
 
 /* Appends one entry; the array grows as needed. */
-static void find_list_add(FindList* list, const WIN32_FIND_DATAW* entry)
+void find_list_add_entry(FindList* list, const WIN32_FIND_DATAW* entry)
 {
     if (list->count == list->capacity) {
         int capacity = list->capacity ? list->capacity * 2 : 64;
@@ -29,14 +29,14 @@ static void find_list_add(FindList* list, const WIN32_FIND_DATAW* entry)
 }
 
 /* A folder that exists only in the plugin (no date, no size). */
-static void add_virtual_folder(FindList* list, const WCHAR* name)
+void find_list_add_folder(FindList* list, const WCHAR* name)
 {
     WIN32_FIND_DATAW entry;
     memset(&entry, 0, sizeof(entry));
     copy_wide(entry.cFileName, MAX_PATH, name);
     entry.dwFileAttributes = FILE_ATTRIBUTE_DIRECTORY;
     entry.ftLastWriteTime = unix_ns_to_filetime(0);
-    find_list_add(list, &entry);
+    find_list_add_entry(list, &entry);
 }
 
 /* An entry for a real file or folder on the device. */
@@ -54,7 +54,7 @@ static void add_device_entry(FindList* list, const char* name, const FileStat* s
     }
     entry.ftLastWriteTime = unix_ns_to_filetime(st->mtime);
     entry.ftCreationTime = unix_ns_to_filetime(st->birth);
-    find_list_add(list, &entry);
+    find_list_add_entry(list, &entry);
 }
 
 /* ------------------------------------------------------------ plugin root */
@@ -75,7 +75,7 @@ static void add_settings_item(FindList* list)
     copy_wide(entry.cFileName, MAX_PATH, SETTINGS_ITEM);
     entry.dwFileAttributes = FILE_ATTRIBUTE_NORMAL;
     entry.ftLastWriteTime = unix_ns_to_filetime(0);
-    find_list_add(list, &entry);
+    find_list_add_entry(list, &entry);
 }
 
 /* The folders of one device ('udid' empty: the default device). */
@@ -85,10 +85,10 @@ static void list_device_root(FindList* list, const char* udid)
     FileStat st;
     StatArgs args;
 
-    if (device_has_afc2(udid)) add_virtual_folder(list, L"Root");
-    add_virtual_folder(list, L"User");
-    add_virtual_folder(list, L"Photos");
-    add_virtual_folder(list, L"Processed photos");
+    if (device_has_afc2(udid)) find_list_add_folder(list, L"Root");
+    find_list_add_folder(list, L"User");
+    find_list_add_folder(list, L"Photos");
+    find_list_add_folder(list, L"Processed photos");
 
     /* Photos that came from iCloud Photos are stored outside /DCIM; show them when present. */
     memset(&user, 0, sizeof(user));
@@ -99,9 +99,10 @@ static void list_device_root(FindList* list, const char* udid)
     args.st = &st;
     args.follow_links = FALSE;
     if (afc_run(&user, op_stat, &args, NULL, 0) == AFC_E_SUCCESS && st.is_dir)
-        add_virtual_folder(list, L"iCloud photos");
+        find_list_add_folder(list, L"iCloud photos");
+    if (photos_available(udid)) find_list_add_folder(list, MONTHS_FOLDER);
 
-    add_virtual_folder(list, L"Applications");
+    find_list_add_folder(list, L"Applications");
 }
 
 /* ------------------------------------------------------------ applications */
@@ -220,7 +221,7 @@ static void list_top(FindList* list)
     count = load_device_table(devices, CONNECTED_MAX);
 
     if (count >= 2 && preferred[0] == 0) {
-        for (i = 0; i < count; i++) add_virtual_folder(list, devices[i].shown);
+        for (i = 0; i < count; i++) find_list_add_folder(list, devices[i].shown);
     } else {
         list_device_root(list, "");
     }
@@ -340,7 +341,7 @@ static BOOL read_applications(FindList* list, const char* udid, WCHAR* err, int 
     apps_table_clear(udid);
     for (i = 0; i < found_count; i++) {
         apps_table_add(udid, found[i].shown, found[i].bundle);
-        if (list) add_virtual_folder(list, found[i].shown);
+        if (list) find_list_add_folder(list, found[i].shown);
     }
     apps_table_done(udid);
     free(found);
@@ -448,6 +449,11 @@ FindList* find_list_create(const WCHAR* tc_path, WCHAR* err, int err_len)
         ok = TRUE;
         break;
     case M_APPLIST: ok = read_applications(list, rp.udid, err, err_len); break;
+    case M_MONTHS:
+        /* rp.path is "/" for the list of months and "/2026-11" for one month. */
+        if (strcmp(rp.path, "/") == 0) ok = photos_list_months(rp.udid, list, err, err_len);
+        else                           ok = photos_list_month(rp.udid, rp.path + 1, list, err, err_len);
+        break;
     case M_INVALID:
     case M_SETTINGS: break;
     default:        ok = list_folder(&rp, list, err, err_len); break;

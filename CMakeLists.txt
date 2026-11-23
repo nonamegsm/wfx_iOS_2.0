@@ -13,6 +13,7 @@ project(wfx_iOS VERSION ${WFX_VERSION} LANGUAGES C RC)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 find_package(unofficial-libimobiledevice CONFIG REQUIRED)
+find_package(unofficial-sqlite3 CONFIG REQUIRED)       # reads the device's photo database
 
 add_library(wfx_iOS SHARED
     src/plugin.c
@@ -20,6 +21,7 @@ add_library(wfx_iOS SHARED
     src/paths.c
     src/listing.c
     src/transfer.c
+    src/photos.c
     src/icons.c
     src/columns.c
     src/dialogs.c
@@ -42,6 +44,7 @@ endif()
 
 target_link_libraries(wfx_iOS PRIVATE
     unofficial::libimobiledevice::libimobiledevice
+    unofficial::sqlite3::sqlite3
     shlwapi shell32 ole32 windowscodecs uuid ws2_32 crypt32 iphlpapi)
 
 if(CMAKE_SIZEOF_VOID_P EQUAL 8)

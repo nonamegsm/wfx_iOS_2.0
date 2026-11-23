@@ -2,7 +2,8 @@
   "name": "wfx-ios",
   "version-string": "2.0",
   "dependencies": [
-    "libimobiledevice"
+    "libimobiledevice",
+    "sqlite3"
   ],
   "vcpkg-configuration": {
     "overlay-ports": [
