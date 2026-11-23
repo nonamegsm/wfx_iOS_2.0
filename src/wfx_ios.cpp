@@ -34,6 +34,7 @@
 #include <libimobiledevice/afc.h>
 #include <libimobiledevice/house_arrest.h>
 #include <libimobiledevice/installation_proxy.h>
+#include <libimobiledevice/service.h>
 #include <plist/plist.h>
 #include <usbmuxd.h>
 
@@ -429,6 +430,38 @@ static afc_error_t with_afc(const RPath& rp, std::wstring* err, Fn fn)
         g_cache.erase(key);
     }
     return r;
+}
+
+// Diagnostic for a dead AFC link: repeats the first request by hand and reports each step.
+static std::wstring afc_probe(const RPath& rp)
+{
+    std::wstring out = L"\n\nDiagnostics:";
+    std::wstring err;
+    DevicePtr d = get_device(false, &err);
+    if (!d) return out + L" no device (" + err + L")";
+    out += L"\n  device " + to_wide(d->udid) + (d->network ? L" over Wi-Fi" : L" over USB") + L", iOS major " + std::to_wstring(d->iosMajor);
+    const char* name = rp.mode == M_ROOT ? "com.apple.afc2" : rp.mode == M_APP ? HOUSE_ARREST_SERVICE_NAME : AFC_SERVICE_NAME;
+    lockdownd_service_descriptor_t svc = nullptr;
+    if (!start_service(d, name, &svc, &err)) return out + L"\n  start " + to_wide(name) + L": " + err;
+    out += L"\n  " + to_wide(name) + L": port " + std::to_wstring(svc->port) + L", ssl " + std::to_wstring((int)svc->ssl_enabled);
+    service_client_t sc = nullptr;
+    DWORD t0 = GetTickCount();
+    service_error_t se = service_client_new(d->dev, svc, &sc);
+    lockdownd_service_descriptor_free(svc);
+    out += L"\n  connect: " + std::to_wstring((int)se) + L" (" + std::to_wstring(GetTickCount() - t0) + L" ms)";
+    if (se != SERVICE_E_SUCCESS || !sc) return out;
+    if (rp.mode != M_APP) {
+        unsigned char pkt[42] = { 'C','F','A','6','L','P','A','A', 42,0,0,0,0,0,0,0, 42,0,0,0,0,0,0,0, 1,0,0,0,0,0,0,0, 3,0,0,0,0,0,0,0, '/', 0 };
+        uint32_t n = 0;
+        se = service_send(sc, (const char*)pkt, sizeof(pkt), &n);
+        out += L"\n  send: " + std::to_wstring((int)se) + L", " + std::to_wstring(n) + L" bytes";
+        char buf[40]; n = 0; t0 = GetTickCount();
+        se = service_receive_with_timeout(sc, buf, sizeof(buf), &n, 10000);
+        out += L"\n  receive: " + std::to_wstring((int)se) + L", " + std::to_wstring(n) + L" bytes (" + std::to_wstring(GetTickCount() - t0) + L" ms)";
+        if (n >= 8) { out += L", starts with "; for (int i = 0; i < 8; i++) out += (wchar_t)(buf[i] >= 32 && buf[i] < 127 ? buf[i] : L'.'); }
+    }
+    service_client_free(sc);
+    return out;
 }
 
 // ---------------------------------------------------------------- stat
@@ -981,7 +1014,8 @@ HANDLE __stdcall FsFindFirstW(WCHAR* Path, WIN32_FIND_DATAW* FindData)
         afc_error_t e = with_afc(rp, &err, [&](afc_client_t afc) { return list_dir(afc, rp.path, h.get()); });
         ok = e == AFC_E_SUCCESS;
         if (!ok && err.empty() && e != AFC_E_OBJECT_NOT_FOUND && e != AFC_E_PERM_DENIED && e != AFC_E_READ_ERROR)
-            err = L"Could not read the directory (AFC error " + std::to_wstring((int)e) + L").";
+            err = L"Could not read the directory (AFC error " + std::to_wstring((int)e) + L")." +
+                  (is_connection_error(e) ? afc_probe(rp) : std::wstring());
         break; }
     }
     if (!ok) {

@@ -1,5 +1,12 @@
 {
   "name": "wfx-ios",
   "version-string": "2.0",
-  "dependencies": [ "libimobiledevice" ]
+  "dependencies": [
+    "libimobiledevice"
+  ],
+  "vcpkg-configuration": {
+    "overlay-ports": [
+      "./ports"
+    ]
+  }
 }
