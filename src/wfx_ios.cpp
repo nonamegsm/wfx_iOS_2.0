@@ -18,6 +18,7 @@
 #include <winsock2.h>
 #include <windows.h>
 #include <shlwapi.h>
+#include <shellapi.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -41,6 +42,7 @@
 #include <usbmuxd.h>
 
 #include "fsplugin.h"
+#include "resource.h"
 
 #define PLUGIN_LABEL   "wfx_iOS"
 #define PLUGIN_TITLE   L"iOS"
@@ -49,6 +51,7 @@
 
 // ---------------------------------------------------------------- globals
 
+static HINSTANCE      g_hInst = nullptr;
 static int            g_pluginNr = 0;
 static tProgressProcW g_progressW = nullptr;
 static tLogProcW      g_logW = nullptr;
@@ -154,6 +157,7 @@ static void show_error(const std::wstring& msg)
 
 // Line in the trace file (stderr is redirected to %TEMP%\wfx_iOS.log when Debug is on).
 static bool g_trace = false;
+static std::wstring g_logPath;
 static void trace(const char* fmt, ...)
 {
     if (!g_trace) return;
@@ -165,7 +169,9 @@ static void trace(const char* fmt, ...)
 
 // ---------------------------------------------------------------- paths
 
-enum Mode { M_INVALID, M_TOP, M_ROOT, M_USER, M_PHOTOS, M_PROCESSED, M_ICLOUD, M_APPLIST, M_APP };
+enum Mode { M_INVALID, M_TOP, M_ROOT, M_USER, M_PHOTOS, M_PROCESSED, M_ICLOUD, M_APPLIST, M_APP, M_SETTINGS };
+
+#define SETTINGS_ITEM L"Settings"
 
 #define ICLOUD_DIR "/PhotoData/CPLAssets"
 
@@ -197,6 +203,7 @@ static RPath parse_path(const WCHAR* remote)
     else if (first == L"Photos") { r.mode = M_PHOTOS; prefix = "/DCIM"; }
     else if (first == L"Processed photos") { r.mode = M_PROCESSED; prefix = "/DCIM"; }
     else if (first == L"iCloud photos") { r.mode = M_ICLOUD; prefix = ICLOUD_DIR; }
+    else if (first == SETTINGS_ITEM && rest.empty()) { r.mode = M_SETTINGS; r.path = "/"; return r; }
     else if (first == L"Applications") {
         if (rest.empty()) { r.mode = M_APPLIST; r.path = "/"; return r; }
         rest.erase(0, 1);
@@ -270,6 +277,7 @@ static DevicePtr get_device(bool fresh, std::wstring* err)
             std::string custom = ini_string("LogFile");
             if (!custom.empty()) log = to_wide(custom, CP_ACP);
             if (_wfreopen(log.c_str(), L"w", stderr)) {
+                g_logPath = log;
                 setvbuf(stderr, nullptr, _IONBF, 0);
                 if (ini_bool("Debug", false)) {
                     idevice_set_debug_level(1);
@@ -631,6 +639,12 @@ static bool list_top(FindHandle* h)
     trace("iCloud photo store %s: %d", ICLOUD_DIR, (int)e);
     if (e == AFC_E_SUCCESS && st.dir) { fill_virtual_dir(fd, L"iCloud photos"); h->items.push_back(fd); }
     fill_virtual_dir(fd, L"Applications"); h->items.push_back(fd);
+    // Pseudo file: Enter opens the settings dialog.
+    memset(&fd, 0, sizeof(fd));
+    wcscpy(fd.cFileName, SETTINGS_ITEM);
+    fd.dwFileAttributes = FILE_ATTRIBUTE_NORMAL;
+    fd.ftLastWriteTime = unix_ns_to_filetime(0);
+    h->items.push_back(fd);
     return true;
 }
 
@@ -1053,66 +1067,200 @@ static std::string lockdown_string(lockdownd_client_t lc, const char* key)
     return out;
 }
 
-// Root "properties": device information and, with several devices attached, device selection.
-static void show_device_properties(HWND wnd)
-{
-    std::wstring err;
-    DevicePtr d = get_device(true, &err);
-    std::wstring msg = L"wfx_iOS 2.0 - update of wfx_iOS 1.3 by Domo (original author)\n\n";
-    if (!d) msg += err;
-    else {
-        lockdownd_client_t lc = nullptr;
-        lockdownd_error_t le = lockdownd_client_new_with_handshake(d->dev, &lc, PLUGIN_LABEL);
-        if (le != LOCKDOWN_E_SUCCESS) msg += lockdown_message(le);
-        else {
-            msg += L"Name:\t\t" + to_wide(lockdown_string(lc, "DeviceName"));
-            msg += L"\nModel:\t\t" + to_wide(lockdown_string(lc, "ProductType"));
-            msg += L"\niOS:\t\t" + to_wide(lockdown_string(lc, "ProductVersion"));
-            msg += L"\nUDID:\t\t" + to_wide(d->udid);
-            lockdownd_client_free(lc);
-            RPath user; user.mode = M_USER; user.path = "/";
-            std::lock_guard<std::recursive_mutex> l(g_opLock);
-            with_afc(user, nullptr, [&](afc_client_t afc) {
-                char *t = nullptr, *f = nullptr;
-                afc_error_t r = afc_get_device_info_key(afc, "FSTotalBytes", &t);
-                if (r == AFC_E_SUCCESS) r = afc_get_device_info_key(afc, "FSFreeBytes", &f);
-                if (r == AFC_E_SUCCESS && t && f) {
-                    WCHAR b[128];
-                    swprintf(b, 128, L"\nFree space:\t%.1f Gb of %.1f Gb (user partition)",
-                             _strtoui64(f, nullptr, 10) / 1073741824.0, _strtoui64(t, nullptr, 10) / 1073741824.0);
-                    msg += b;
-                }
-                free(t); free(f);
-                return r;
-            });
-        }
-    }
+// ---------------------------------------------------------------- settings dialog
 
-    // Device selection (replaces the 1.3 combo-box dialog).
-    char** list = nullptr; int n = 0;
-    idevice_get_device_list(&list, &n);
+static void ini_write(const char* key, const char* value)
+{
+    WritePrivateProfileStringA(INI_SECTION, key, value, g_ini.c_str());
+}
+
+// Name, model, OS version and free space of one connected device (no pairing needed for the first three).
+static std::wstring device_summary(const std::string& udid, std::wstring* nameOut)
+{
+    std::wstring out;
+    idevice_t dev = nullptr;
+    if (idevice_new_with_options(&dev, udid.c_str(), IDEVICE_LOOKUP_USBMUX) != IDEVICE_E_SUCCESS || !dev) {
+        if (!ini_bool("AllowWiFi", false) ||
+            idevice_new_with_options(&dev, udid.c_str(), IDEVICE_LOOKUP_NETWORK) != IDEVICE_E_SUCCESS || !dev)
+            return L"Not connected.";
+    }
+    lockdownd_client_t lc = nullptr;
+    lockdownd_error_t le = lockdownd_client_new(dev, &lc, PLUGIN_LABEL);
+    if (le != LOCKDOWN_E_SUCCESS || !lc) { idevice_free(dev); return lockdown_message(le); }
+    std::wstring name = to_wide(lockdown_string(lc, "DeviceName"));
+    if (nameOut) *nameOut = name;
+    out = L"Name:\t" + name;
+    out += L"\r\nModel:\t" + to_wide(lockdown_string(lc, "ProductType"));
+    out += L"\r\niOS:\t" + to_wide(lockdown_string(lc, "ProductVersion")) + L" (" + to_wide(lockdown_string(lc, "BuildVersion")) + L")";
+    lockdownd_client_free(lc);
+    idevice_free(dev);
+    return out;
+}
+
+static std::wstring free_space_line()
+{
+    std::wstring line;
+    RPath user; user.mode = M_USER; user.path = "/";
+    std::lock_guard<std::recursive_mutex> l(g_opLock);
+    with_afc(user, nullptr, [&](afc_client_t afc) {
+        char *t = nullptr, *f = nullptr;
+        afc_error_t r = afc_get_device_info_key(afc, "FSTotalBytes", &t);
+        if (r == AFC_E_SUCCESS) r = afc_get_device_info_key(afc, "FSFreeBytes", &f);
+        if (r == AFC_E_SUCCESS && t && f) {
+            WCHAR b[128];
+            swprintf(b, 128, L"\r\nFree:\t%.1f GB of %.1f GB",
+                     _strtoui64(f, nullptr, 10) / 1073741824.0, _strtoui64(t, nullptr, 10) / 1073741824.0);
+            line = b;
+        }
+        free(t); free(f);
+        return r;
+    });
+    return line;
+}
+
+struct SettingsState {
+    std::vector<std::string> udids;      // combo index -> UDID ("" = any device)
+};
+
+static void settings_show_info(HWND dlg, SettingsState* st)
+{
+    int sel = (int)SendDlgItemMessageW(dlg, IDC_DEVICE, CB_GETCURSEL, 0, 0);
+    std::wstring info;
+    HCURSOR old = SetCursor(LoadCursor(nullptr, IDC_WAIT));
+    if (sel > 0 && sel < (int)st->udids.size()) {
+        info = device_summary(st->udids[sel], nullptr) + L"\r\nUDID:\t" + to_wide(st->udids[sel]);
+    } else {
+        std::wstring err;
+        DevicePtr d = get_device(false, &err);
+        if (!d) info = err;
+        else info = device_summary(d->udid, nullptr) + free_space_line() + L"\r\nUDID:\t" + to_wide(d->udid);
+    }
+    SetCursor(old);
+    SetDlgItemTextW(dlg, IDC_INFO, info.c_str());
+}
+
+static void settings_fill_devices(HWND dlg, SettingsState* st)
+{
+    HWND combo = GetDlgItem(dlg, IDC_DEVICE);
+    SendMessageW(combo, CB_RESETCONTENT, 0, 0);
+    st->udids.clear();
+    st->udids.push_back("");
+    SendMessageW(combo, CB_ADDSTRING, 0, (LPARAM)L"<Any connected device>");
+
     std::string preferred = ini_string("PreferredDevice");
-    msg += L"\n\nPreferred device: " + (preferred.empty() ? std::wstring(L"<Any connected device>") : to_wide(preferred));
-    if (n <= 1 && preferred.empty()) {
-        if (list) idevice_device_list_free(list);
-        MessageBoxW(wnd, msg.c_str(), PLUGIN_TITLE, MB_OK | MB_ICONINFORMATION);
-        return;
+    bool wifi = IsDlgButtonChecked(dlg, IDC_WIFI) == BST_CHECKED;
+    usbmuxd_device_info_t* list = nullptr;
+    int n = usbmuxd_get_device_list(&list);
+    for (int i = 0; i < n; i++) {
+        bool net = list[i].conn_type == CONNECTION_TYPE_NETWORK;
+        if (net && !wifi) continue;
+        std::string udid = list[i].udid;
+        if (std::find(st->udids.begin(), st->udids.end(), udid) != st->udids.end()) continue;
+        std::wstring name;
+        device_summary(udid, &name);
+        std::wstring label = (name.empty() ? to_wide(udid) : name + L"  (" + to_wide(udid) + L")") + (net ? L"  [Wi-Fi]" : L"");
+        st->udids.push_back(udid);
+        SendMessageW(combo, CB_ADDSTRING, 0, (LPARAM)label.c_str());
     }
-    std::vector<std::string> choices;
-    choices.push_back("");
-    for (int i = 0; i < n; i++)
-        if (std::find(choices.begin(), choices.end(), list[i]) == choices.end()) choices.push_back(list[i]);
-    if (list) idevice_device_list_free(list);
-    size_t cur = std::find(choices.begin(), choices.end(), preferred) - choices.begin();
-    const std::string& next = choices[(cur + 1) % choices.size()];
-    msg += L"\n\nSwitch the preferred device to " + (next.empty() ? std::wstring(L"<Any connected device>") : to_wide(next)) + L"?";
-    if (MessageBoxW(wnd, msg.c_str(), PLUGIN_TITLE, MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2) == IDYES) {
-        WritePrivateProfileStringA(INI_SECTION, "PreferredDevice", next.empty() ? nullptr : next.c_str(), g_ini.c_str());
-        std::lock_guard<std::recursive_mutex> l(g_opLock);
-        g_cache.clear();
-        std::lock_guard<std::mutex> l2(g_devLock);
-        g_device.reset();
+    if (list) usbmuxd_device_list_free(&list);
+
+    int sel = 0;
+    if (!preferred.empty()) {
+        auto it = std::find(st->udids.begin(), st->udids.end(), preferred);
+        if (it == st->udids.end()) {
+            st->udids.push_back(preferred);
+            SendMessageW(combo, CB_ADDSTRING, 0, (LPARAM)(to_wide(preferred) + L"  (not connected)").c_str());
+            sel = (int)st->udids.size() - 1;
+        } else sel = (int)(it - st->udids.begin());
     }
+    SendMessageW(combo, CB_SETCURSEL, sel, 0);
+    settings_show_info(dlg, st);
+}
+
+static INT_PTR CALLBACK settings_proc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp)
+{
+    SettingsState* st = (SettingsState*)GetWindowLongPtrW(dlg, GWLP_USERDATA);
+    switch (msg) {
+    case WM_INITDIALOG: {
+        st = (SettingsState*)lp;
+        SetWindowLongPtrW(dlg, GWLP_USERDATA, (LONG_PTR)st);
+        HICON ico = LoadIconW(g_hInst, MAKEINTRESOURCEW(IDI_PLUGIN));
+        SendMessageW(dlg, WM_SETICON, ICON_SMALL, (LPARAM)ico);
+        SendMessageW(dlg, WM_SETICON, ICON_BIG, (LPARAM)ico);
+        CheckDlgButton(dlg, IDC_APPNAMES, ini_bool("AppNames", true) ? BST_CHECKED : BST_UNCHECKED);
+        CheckDlgButton(dlg, IDC_ALLAPPS, ini_bool("ShowAllApps", false) ? BST_CHECKED : BST_UNCHECKED);
+        CheckDlgButton(dlg, IDC_WIFI, ini_bool("AllowWiFi", false) ? BST_CHECKED : BST_UNCHECKED);
+        CheckDlgButton(dlg, IDC_LOG, ini_bool("Log", true) ? BST_CHECKED : BST_UNCHECKED);
+        CheckDlgButton(dlg, IDC_DEBUG, ini_bool("Debug", false) ? BST_CHECKED : BST_UNCHECKED);
+        EnableWindow(GetDlgItem(dlg, IDC_DEBUG), IsDlgButtonChecked(dlg, IDC_LOG) == BST_CHECKED);
+        EnableWindow(GetDlgItem(dlg, IDC_OPENLOG), !g_logPath.empty());
+        SetDlgItemTextW(dlg, IDC_ABOUT, L"wfx_iOS 2.0 (" __DATE__ L") \x2013 update of wfx_iOS 1.3 by Domo, the original author");
+        settings_fill_devices(dlg, st);
+        return TRUE;
+    }
+    case WM_COMMAND:
+        switch (LOWORD(wp)) {
+        case IDC_DEVICE:
+            if (HIWORD(wp) == CBN_SELCHANGE) settings_show_info(dlg, st);
+            return TRUE;
+        case IDC_REFRESH:
+        case IDC_WIFI:
+            settings_fill_devices(dlg, st);
+            return TRUE;
+        case IDC_LOG:
+            EnableWindow(GetDlgItem(dlg, IDC_DEBUG), IsDlgButtonChecked(dlg, IDC_LOG) == BST_CHECKED);
+            return TRUE;
+        case IDC_OPENLOG:
+            if (!g_logPath.empty()) ShellExecuteW(dlg, L"open", L"notepad.exe", (L"\"" + g_logPath + L"\"").c_str(), nullptr, SW_SHOWNORMAL);
+            return TRUE;
+        case IDOK: {
+            int sel = (int)SendDlgItemMessageW(dlg, IDC_DEVICE, CB_GETCURSEL, 0, 0);
+            std::string udid = (sel > 0 && sel < (int)st->udids.size()) ? st->udids[sel] : std::string();
+            bool deviceChanged = udid != ini_string("PreferredDevice");
+            bool logWas = ini_bool("Log", true);
+            ini_write("PreferredDevice", udid.empty() ? nullptr : udid.c_str());
+            ini_write("AppNames", IsDlgButtonChecked(dlg, IDC_APPNAMES) == BST_CHECKED ? "1" : "0");
+            ini_write("ShowAllApps", IsDlgButtonChecked(dlg, IDC_ALLAPPS) == BST_CHECKED ? "1" : "0");
+            ini_write("AllowWiFi", IsDlgButtonChecked(dlg, IDC_WIFI) == BST_CHECKED ? "1" : "0");
+            bool log = IsDlgButtonChecked(dlg, IDC_LOG) == BST_CHECKED;
+            bool debug = log && IsDlgButtonChecked(dlg, IDC_DEBUG) == BST_CHECKED;
+            ini_write("Log", log ? "1" : "0");
+            ini_write("Debug", debug ? "1" : "0");
+            if (g_trace) {                       // the trace level can change while running
+                idevice_set_debug_level(debug ? 1 : 0);
+                libusbmuxd_set_debug_level(debug ? 1 : 0);
+            }
+            if (deviceChanged) {
+                std::lock_guard<std::recursive_mutex> l(g_opLock);
+                g_cache.clear();
+                std::lock_guard<std::mutex> l2(g_devLock);
+                g_device.reset();
+            }
+            {
+                std::lock_guard<std::mutex> l(g_appLock);     // names / all-apps may have changed
+                g_appNames.clear(); g_appsLoaded = false;
+            }
+            if (log != logWas)
+                MessageBoxW(dlg, L"The log file setting takes effect after Total Commander is restarted.", PLUGIN_TITLE, MB_OK | MB_ICONINFORMATION);
+            EndDialog(dlg, IDOK);
+            return TRUE;
+        }
+        case IDCANCEL:
+            EndDialog(dlg, IDCANCEL);
+            return TRUE;
+        }
+        break;
+    }
+    return FALSE;
+}
+
+// Opened by Enter on "Settings" and by Alt+Enter on the plugin root.
+static void show_settings(HWND wnd)
+{
+    std::wstring ignored;
+    get_device(false, &ignored);          // makes sure sockets and the log are initialised
+    SettingsState st;
+    DialogBoxParamW(g_hInst, MAKEINTRESOURCEW(IDD_SETTINGS), wnd, settings_proc, (LPARAM)&st);
 }
 
 // ---------------------------------------------------------------- exported API
@@ -1320,10 +1468,13 @@ BOOL __stdcall FsSetTimeW(WCHAR* RemoteName, FILETIME*, FILETIME*, FILETIME* Las
 int __stdcall FsExecuteFileW(HWND MainWin, WCHAR* RemoteName, WCHAR* Verb)
 {
     if (!Verb) return FS_EXEC_ERROR;
-    if (!_wcsicmp(Verb, L"open")) return FS_EXEC_YOURSELF;      // let TC download and open it
+    if (!_wcsicmp(Verb, L"open")) {
+        if (parse_path(RemoteName).mode == M_SETTINGS) { show_settings(MainWin); return FS_EXEC_OK; }
+        return FS_EXEC_YOURSELF;                                 // let TC download and open it
+    }
     if (!_wcsnicmp(Verb, L"properties", 10)) {
         RPath rp = parse_path(RemoteName);
-        if (rp.mode == M_TOP) show_device_properties(MainWin);
+        if (rp.mode == M_TOP || rp.mode == M_SETTINGS) show_settings(MainWin);
         else if (is_afc_mode(rp.mode)) show_file_properties(MainWin, RemoteName, rp);
         return FS_EXEC_OK;
     }
@@ -1332,7 +1483,8 @@ int __stdcall FsExecuteFileW(HWND MainWin, WCHAR* RemoteName, WCHAR* Verb)
 
 } // extern "C"
 
-BOOL APIENTRY DllMain(HINSTANCE, DWORD, LPVOID)
+BOOL APIENTRY DllMain(HINSTANCE inst, DWORD reason, LPVOID)
 {
+    if (reason == DLL_PROCESS_ATTACH) g_hInst = inst;
     return TRUE;
 }

@@ -65,12 +65,13 @@ Then open *Network Neighborhood* -> *iOS*.
 | `iCloud photos` | photos synced from iCloud Photos (`/PhotoData/CPLAssets`); shown only when the device has them |
 | `Applications` | documents of apps that enable file sharing, by app name |
 
-Alt+Enter on the plugin root shows device information and switches the preferred
-device when several are connected. Alt+Enter on a file shows its properties.
+`Settings` at the plugin root (Enter), or Alt+Enter on the root, opens the settings dialog:
+device selection with device information, and the options below. Alt+Enter on a file shows
+its properties.
 
 ## Settings
 
-Section `[wfx_iOS]` in Total Commander's `fsplugin.ini`:
+Use the settings dialog, or edit section `[wfx_iOS]` in Total Commander's `fsplugin.ini`:
 
 | Key | Meaning |
 |---|---|
@@ -93,7 +94,7 @@ Section `[wfx_iOS]` in Total Commander's `fsplugin.ini`:
 - USB only by default; Wi-Fi-synced devices are optional (`AllowWiFi=1`)
 - Unplugging the device no longer hangs the plugin
 - Error messages say which step failed, and a trace file is written
-- The two dialogs of 1.3 are plain message boxes for now
+- Settings dialog with device selection; file properties are a plain message box for now
 
 ## Troubleshooting
 

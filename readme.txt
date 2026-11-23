@@ -22,8 +22,8 @@ Folders
   iCloud photos     photos synced from iCloud Photos (shown only when present)
   Applications      documents of apps that enable file sharing, by app name
 
-Alt+Enter on the plugin root shows device information and lets you switch the
-preferred device when several are connected. Alt+Enter on a file shows its properties.
+"Settings" at the plugin root (Enter), or Alt+Enter on the root, opens the
+settings dialog. Alt+Enter on a file shows its properties.
 
 Settings (section [wfx_iOS] in Total Commander's fsplugin.ini)
   PreferredDevice=<UDID>   use only this device (empty = any connected device)
