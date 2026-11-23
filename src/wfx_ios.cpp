@@ -35,6 +35,7 @@
 #include <libimobiledevice/house_arrest.h>
 #include <libimobiledevice/installation_proxy.h>
 #include <plist/plist.h>
+#include <usbmuxd.h>
 
 #include "fsplugin.h"
 
@@ -237,9 +238,24 @@ static DevicePtr get_device(bool fresh, std::wstring* err)
     enum idevice_options opts = (enum idevice_options)(IDEVICE_LOOKUP_USBMUX | IDEVICE_LOOKUP_NETWORK);
     idevice_error_t e = idevice_new_with_options(&dev, preferred.empty() ? nullptr : preferred.c_str(), opts);
     if (e != IDEVICE_E_SUCCESS || !dev) {
-        if (err) *err = preferred.empty()
-            ? L"No iOS device found.\nConnect a device and make sure Apple Mobile Device Support (iTunes / Apple Devices) is installed and its service is running."
-            : L"Preferred device " + to_wide(preferred) + L" is not connected.";
+        if (err) {
+            // Ask usbmuxd directly so the message says which step failed.
+            usbmuxd_device_info_t* list = nullptr;
+            int n = usbmuxd_get_device_list(&list);
+            if (n < 0) {
+                *err = L"Cannot reach the Apple Mobile Device Service (usbmuxd, 127.0.0.1:27015), error " + std::to_wstring(n) +
+                       L".\nInstall Apple Mobile Device Support and make sure the \"Apple Mobile Device Service\" is running.";
+            } else if (n == 0) {
+                *err = L"The Apple Mobile Device Service is running but reports no connected device.\n"
+                       L"Check the cable, unlock the device, and check that Windows shows it as \"Apple Mobile Device USB\" in Device Manager.";
+            } else {
+                std::wstring seen;
+                for (int i = 0; i < n; i++) seen += L"\n  " + to_wide(list[i].udid) + (list[i].conn_type == CONNECTION_TYPE_NETWORK ? L" (network)" : L" (USB)");
+                *err = (preferred.empty() ? std::wstring(L"Could not open the device") : L"Preferred device " + to_wide(preferred) + L" is not connected") +
+                       L" (idevice error " + std::to_wstring((int)e) + L").\nDevices reported by the service:" + seen;
+            }
+            if (list) usbmuxd_device_list_free(&list);
+        }
         return nullptr;
     }
     DevicePtr d = std::make_shared<Device>();
