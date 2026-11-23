@@ -1,0 +1,6 @@
+[plugininstall]
+description=iOS Filesystem Browser
+type=wfx
+file=wfx_iOS.wfx
+file=readme.txt
+defaultdir=iOS
