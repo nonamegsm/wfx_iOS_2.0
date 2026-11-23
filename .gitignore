@@ -1,0 +1,6 @@
+build/
+dist/
+vcpkg/
+vcpkg_installed/
+*.i64
+*.idb

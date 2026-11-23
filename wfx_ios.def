@@ -1,0 +1,19 @@
+EXPORTS
+    FsInit
+    FsInitW
+    FsFindFirst
+    FsFindFirstW
+    FsFindNext
+    FsFindNextW
+    FsFindClose
+    FsGetDefRootName
+    FsSetDefaultParams
+    FsGetBackgroundFlags
+    FsGetFileW
+    FsPutFileW
+    FsRenMovFileW
+    FsDeleteFileW
+    FsRemoveDirW
+    FsMkDirW
+    FsSetTimeW
+    FsExecuteFileW
