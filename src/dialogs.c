@@ -115,12 +115,14 @@ static void settings_show_info(HWND dialog, SettingsState* state)
         append_wide(info, INFO_MAX, L"\r\nUDID:\t%s", udid);
     } else {
         /* "Any connected device": describe the one the plugin would use now. */
-        Device* device = device_acquire(FALSE, info, INFO_MAX);
+        Device* device = device_acquire("", FALSE, info, INFO_MAX);
         if (device) {
             RemotePath user;
             WCHAR space[128] = L"";
             describe_device(device->udid, info, INFO_MAX, NULL, 0);
-            parse_path(L"\\User", &user);
+            memset(&user, 0, sizeof(user));          /* the default device's media partition */
+            user.mode = M_USER;
+            copy_text(user.path, AFC_PATH_MAX, "/");
             afc_run(&user, op_free_space, space, NULL, 0);
             utf8_to_wide(device->udid, udid, 64);
             append_wide(info, INFO_MAX, L"%s\r\nUDID:\t%s", space, udid);
@@ -144,7 +146,7 @@ static void settings_fill_devices(HWND dialog, SettingsState* state)
     SendMessageW(combo, CB_RESETCONTENT, 0, 0);
     state->count = 1;
     state->udids[0][0] = 0;
-    SendMessageW(combo, CB_ADDSTRING, 0, (LPARAM)L"<Any connected device>");
+    SendMessageW(combo, CB_ADDSTRING, 0, (LPARAM)L"<All connected devices>");
 
     count = usbmuxd_get_device_list(&list);
     for (i = 0; i < count && state->count < MAX_DEVICES - 1; i++) {
@@ -229,7 +231,7 @@ static void settings_save(HWND dialog, SettingsState* state)
         libusbmuxd_set_debug_level(debug ? 1 : 0);
     }
     if (strcmp(udid, old_udid) != 0) device_forget();
-    apps_table_clear();                 /* names / "all applications" may have changed */
+    apps_table_clear(NULL);             /* names / "all applications" may have changed */
 
     if (log != log_before)
         MessageBoxW(dialog, L"The log file setting takes effect after Total Commander is restarted.",
@@ -284,7 +286,7 @@ static INT_PTR CALLBACK settings_proc(HWND dialog, UINT message, WPARAM wparam, 
 void show_settings(HWND parent)
 {
     SettingsState state;
-    Device* device = device_acquire(FALSE, NULL, 0);    /* also opens sockets and the log on first use */
+    Device* device = device_acquire("", FALSE, NULL, 0);    /* also opens sockets and the log on first use */
 
     if (device) device_release(device);
     memset(&state, 0, sizeof(state));

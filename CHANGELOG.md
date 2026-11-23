@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.3
+
+- Several devices at once: with more than one device connected (and no preferred
+  device selected in the settings) the plugin root shows one folder per device.
+  Files can be copied directly from one device to another.
+
 ## 2.2
 
 - File properties (Alt+Enter) are a real dialog; the values can be selected and copied.

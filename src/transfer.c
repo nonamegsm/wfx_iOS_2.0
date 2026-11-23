@@ -266,7 +266,7 @@ int upload_file(const WCHAR* local_name, const WCHAR* remote_name, int copy_flag
 /* Copies one file on the device; source and target may be in different containers. */
 int copy_on_device(const WCHAR* old_name, const WCHAR* new_name, const RemotePath* src, const RemotePath* dst)
 {
-    char src_key[APP_ID_MAX + 8], dst_key[APP_ID_MAX + 8];
+    char src_key[KEY_MAX], dst_key[KEY_MAX];
     AfcConn* from;
     AfcConn* to;
     FileStat st;

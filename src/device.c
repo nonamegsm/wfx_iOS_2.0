@@ -20,10 +20,12 @@
  */
 #include "wfx_ios.h"
 
-#define CACHE_MAX 8                         /* cached AFC connections */
+#define CACHE_MAX   8                       /* cached AFC connections */
+#define DEVICES_MAX 8                       /* devices open at the same time */
 
-static CRITICAL_SECTION g_device_lock;      /* protects g_device */
-static Device*          g_device = NULL;    /* the device in use (holds one reference) */
+static CRITICAL_SECTION g_device_lock;      /* protects g_devices */
+static Device*          g_devices[DEVICES_MAX];     /* open devices (each holds one reference) */
+static int              g_devices_count = 0;
 
 static CRITICAL_SECTION g_cache_lock;       /* protects g_cache and serialises short operations */
 static AfcConn*         g_cache[CACHE_MAX];
@@ -65,7 +67,7 @@ static BOOL device_is_present(const Device* device)
 }
 
 /* Explains why no device could be opened. */
-static void describe_missing_device(const char* preferred, idevice_error_t error, WCHAR* err, int err_len)
+static void describe_missing_device(const char* wanted, idevice_error_t error, WCHAR* err, int err_len)
 {
     usbmuxd_device_info_t* list = NULL;
     int count = usbmuxd_get_device_list(&list);
@@ -81,8 +83,8 @@ static void describe_missing_device(const char* preferred, idevice_error_t error
             L"No iOS device is connected.\n"
             L"Connect and unlock the device. (The Apple Mobile Device Service is running but reports no device.)");
     } else {
-        if (preferred[0])
-            format_wide(err, err_len, L"Preferred device %hs is not connected (idevice error %d).", preferred, (int)error);
+        if (wanted[0])
+            format_wide(err, err_len, L"Device %hs is not connected (idevice error %d).", wanted, (int)error);
         else
             format_wide(err, err_len, L"Could not open the device (idevice error %d).", (int)error);
         append_wide(err, err_len, L"\nDevices reported by the service:");
@@ -93,22 +95,46 @@ static void describe_missing_device(const char* preferred, idevice_error_t error
     if (list) usbmuxd_device_list_free(&list);
 }
 
+/* Index of the open device for 'udid' ("" = the default device), or -1. Caller holds g_device_lock. */
+static int find_open_device(const char* udid)
+{
+    int i;
+    for (i = 0; i < g_devices_count; i++) {
+        if (udid[0] == 0 ? g_devices[i]->is_default
+                         : (!g_devices[i]->is_default && strcmp(g_devices[i]->udid, udid) == 0))
+            return i;
+    }
+    return -1;
+}
+
+/* Closes one open device. Caller holds g_device_lock. */
+static void close_open_device(int index)
+{
+    device_release(g_devices[index]);
+    memmove(&g_devices[index], &g_devices[index + 1], (g_devices_count - index - 1) * sizeof(Device*));
+    g_devices_count--;
+}
+
 /*
  * Returns the device to use, with one reference added for the caller
- * (give it back with device_release). Returns NULL and fills 'err' when no
- * device is available. 'fresh' forces the device to be looked up again.
+ * (give it back with device_release). Returns NULL and fills 'err' when the
+ * device is not available.
+ *   udid   which device; "" means the default one (the preferred device from
+ *          the settings, else the first one found)
+ *   fresh  look the device up again even if we have it open
  */
-Device* device_acquire(BOOL fresh, WCHAR* err, int err_len)
+Device* device_acquire(const char* udid, BOOL fresh, WCHAR* err, int err_len)
 {
-    static BOOL  first_use = TRUE;
-    static DWORD last_check = 0;
-    char preferred[64];
+    static BOOL first_use = TRUE;
+    char wanted[UDID_MAX];
     idevice_t dev = NULL;
     idevice_error_t error;
     BOOL network = FALSE;
     Device* device;
-    char* udid = NULL;
+    char* real_udid = NULL;
+    int index;
 
+    if (!udid) udid = "";
     if (err && err_len > 0) err[0] = 0;
     EnterCriticalSection(&g_device_lock);
 
@@ -119,47 +145,53 @@ Device* device_acquire(BOOL fresh, WCHAR* err, int err_len)
         first_use = FALSE;
     }
 
-    if (g_device && !fresh) {
+    index = find_open_device(udid);
+    if (index >= 0 && !fresh) {
         /* A cheap check with the local service, so a pulled cable fails at
            once instead of waiting on a dead connection. At most every 0.7 s. */
         DWORD now = GetTickCount();
-        if (now - last_check < 700 || device_is_present(g_device)) {
-            if (now - last_check >= 700) last_check = now;
-            device = g_device;
+        device = g_devices[index];
+        if (now - device->last_check < 700 || device_is_present(device)) {
+            if (now - device->last_check >= 700) device->last_check = now;
             InterlockedIncrement(&device->refs);
             LeaveCriticalSection(&g_device_lock);
             return device;
         }
-        log_line("device %s is gone", g_device->udid);
+        log_line("device %s is gone", device->udid);
         InterlockedExchange(&g_drop_cache, 1);
     }
-    if (g_device) { device_release(g_device); g_device = NULL; }
+    if (index >= 0) close_open_device(index);
+
+    /* Which device to open: the one asked for, else the preferred one, else any. */
+    copy_text(wanted, sizeof(wanted), udid);
+    if (wanted[0] == 0) ini_get_text("PreferredDevice", wanted, sizeof(wanted));
 
     /* USB first. Wi-Fi only on request, because connecting can block for long. */
-    ini_get_text("PreferredDevice", preferred, sizeof(preferred));
-    error = idevice_new_with_options(&dev, preferred[0] ? preferred : NULL, IDEVICE_LOOKUP_USBMUX);
+    error = idevice_new_with_options(&dev, wanted[0] ? wanted : NULL, IDEVICE_LOOKUP_USBMUX);
     if ((error != IDEVICE_E_SUCCESS || !dev) && ini_get_bool("AllowWiFi", FALSE)) {
         dev = NULL;
         network = TRUE;
-        error = idevice_new_with_options(&dev, preferred[0] ? preferred : NULL, IDEVICE_LOOKUP_NETWORK);
+        error = idevice_new_with_options(&dev, wanted[0] ? wanted : NULL, IDEVICE_LOOKUP_NETWORK);
     }
     if (error != IDEVICE_E_SUCCESS || !dev) {
-        if (err) describe_missing_device(preferred, error, err, err_len);
+        if (err) describe_missing_device(wanted, error, err, err_len);
         LeaveCriticalSection(&g_device_lock);
         return NULL;
     }
 
     device = (Device*)calloc(1, sizeof(Device));
     device->dev = dev;
+    device->is_default = udid[0] == 0;
     device->network = network;
     device->has_afc2 = -1;
-    device->refs = 2;                       /* one for g_device, one for the caller */
-    if (idevice_get_udid(dev, &udid) == IDEVICE_E_SUCCESS && udid) {
-        copy_text(device->udid, sizeof(device->udid), udid);
-        free(udid);
+    device->last_check = GetTickCount();
+    device->refs = 2;                       /* one for g_devices, one for the caller */
+    if (idevice_get_udid(dev, &real_udid) == IDEVICE_E_SUCCESS && real_udid) {
+        copy_text(device->udid, sizeof(device->udid), real_udid);
+        free(real_udid);
     }
-    g_device = device;
-    last_check = GetTickCount();
+    if (g_devices_count == DEVICES_MAX) close_open_device(0);   /* full: close the oldest */
+    g_devices[g_devices_count++] = device;
     InterlockedExchange(&g_device_seen, 1);
     log_line("device %s opened over %s", device->udid, network ? "Wi-Fi" : "USB");
 
@@ -167,19 +199,19 @@ Device* device_acquire(BOOL fresh, WCHAR* err, int err_len)
     return device;
 }
 
-/* Drops the current device and its connections (another one was selected). */
+/* Closes all devices and their connections (e.g. the settings changed). */
 void device_forget(void)
 {
     afc_cache_clear();
     EnterCriticalSection(&g_device_lock);
-    if (g_device) { device_release(g_device); g_device = NULL; }
+    while (g_devices_count > 0) close_open_device(g_devices_count - 1);
     LeaveCriticalSection(&g_device_lock);
 }
 
 /* TRUE when the device offers com.apple.afc2 (it is jailbroken). Asked once per device. */
-BOOL device_has_afc2(void)
+BOOL device_has_afc2(const char* udid)
 {
-    Device* device = device_acquire(FALSE, NULL, 0);
+    Device* device = device_acquire(udid, FALSE, NULL, 0);
     BOOL result;
 
     if (!device) return FALSE;
@@ -233,6 +265,27 @@ static void lockdown_get_text(lockdownd_client_t lockdown, const char* key, char
         plist_mem_free(value);
     }
     plist_free(node);
+}
+
+/* The user-visible name of a connected device ("Anna's iPhone"). Works without pairing. */
+void device_read_name(const char* udid, WCHAR* name, int name_len)
+{
+    idevice_t dev = NULL;
+    lockdownd_client_t lockdown = NULL;
+    char value[256] = "";
+
+    name[0] = 0;
+    if (idevice_new_with_options(&dev, udid, IDEVICE_LOOKUP_USBMUX) != IDEVICE_E_SUCCESS || !dev) {
+        dev = NULL;
+        if (!ini_get_bool("AllowWiFi", FALSE) ||
+            idevice_new_with_options(&dev, udid, IDEVICE_LOOKUP_NETWORK) != IDEVICE_E_SUCCESS || !dev) return;
+    }
+    if (lockdownd_client_new(dev, &lockdown, PLUGIN_LABEL) == LOCKDOWN_E_SUCCESS && lockdown) {
+        lockdown_get_text(lockdown, "DeviceName", value, sizeof(value));
+        lockdownd_client_free(lockdown);
+    }
+    idevice_free(dev);
+    utf8_to_wide(value, name, name_len);
 }
 
 /* First session with a device: remember the iOS version and note the device in the log. */
@@ -404,7 +457,7 @@ AfcConn* conn_open(const RemotePath* rp, WCHAR* err, int err_len)
     int attempt;
 
     for (attempt = 0; attempt < 2; attempt++) {
-        Device* device = device_acquire(attempt == 1, err, err_len);
+        Device* device = device_acquire(rp->udid, attempt == 1, err, err_len);
         AfcConn* conn;
         if (!device) continue;
         conn = conn_open_on(device, rp, err, err_len);
@@ -454,7 +507,7 @@ BOOL afc_is_connection_error(afc_error_t e)
 afc_error_t afc_run(const RemotePath* rp, AfcOp op, void* arg, WCHAR* err, int err_len)
 {
     afc_error_t result = AFC_E_MUX_ERROR;
-    char key[APP_ID_MAX + 8];
+    char key[KEY_MAX];
     int attempt;
 
     connection_key(rp, key, sizeof(key));
@@ -465,7 +518,7 @@ afc_error_t afc_run(const RemotePath* rp, AfcOp op, void* arg, WCHAR* err, int e
         int index;
 
         /* No device: nothing cached can work, and there is no point in trying. */
-        device = device_acquire(FALSE, err, err_len);
+        device = device_acquire(rp->udid, FALSE, err, err_len);
         if (!device) {
             afc_cache_clear();
             InterlockedExchange(&g_drop_cache, 0);

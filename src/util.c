@@ -198,7 +198,7 @@ static BOOL is_no_device_message(const WCHAR* message)
 {
     return wcsncmp(message, L"No iOS device", 13) == 0 ||
            wcsncmp(message, L"Cannot reach", 12) == 0 ||
-           wcsncmp(message, L"Preferred device", 16) == 0 ||
+           wcsncmp(message, L"Device ", 7) == 0 ||
            wcsncmp(message, L"Could not open the device", 25) == 0;
 }
 

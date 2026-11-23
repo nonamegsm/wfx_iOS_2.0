@@ -12,6 +12,7 @@
 
 /* Windows stock icon numbers (SHSTOCKICONID) used for our folders. */
 #define ICON_APPLICATION   2
+#define ICON_REMOVABLE     7
 #define ICON_DRIVE         8
 #define ICON_WORLD         13
 #define ICON_IMAGE_FILES   72
@@ -21,6 +22,7 @@
 
 /* PNG data of one application icon, as delivered by the device. */
 typedef struct {
+    char           udid[UDID_MAX];  /* device the icon came from */
     char           bundle[APP_ID_MAX];
     unsigned char* png;             /* NULL when the device has no icon for it */
     uint32_t       size;
@@ -28,7 +30,7 @@ typedef struct {
 
 static CRITICAL_SECTION    g_icon_lock;         /* protects everything below */
 static sbservices_client_t g_springboard = NULL;/* open connection to SpringBoard */
-static Device*             g_icon_device = NULL;/* device the cache belongs to */
+static Device*             g_icon_device = NULL;/* device g_springboard is connected to */
 static IconEntry*          g_icons = NULL;
 static int                 g_icons_count = 0;
 static int                 g_icons_capacity = 0;
@@ -54,40 +56,38 @@ static HICON load_stock_icon(int stock_id, BOOL small_icon)
 /* ------------------------------------------------------ application icons */
 
 /* Caller holds g_icon_lock. Returns the cache entry or NULL. */
-static IconEntry* icon_cache_find(const char* bundle)
+static IconEntry* icon_cache_find(const char* udid, const char* bundle)
 {
     int i;
     for (i = 0; i < g_icons_count; i++)
-        if (strcmp(g_icons[i].bundle, bundle) == 0) return &g_icons[i];
+        if (strcmp(g_icons[i].udid, udid) == 0 && strcmp(g_icons[i].bundle, bundle) == 0) return &g_icons[i];
     return NULL;
 }
 
-/* Caller holds g_icon_lock. Forgets all icons and closes the SpringBoard connection. */
-static void icon_cache_reset(void)
+/* Caller holds g_icon_lock. Closes the SpringBoard connection; the cached icons stay. */
+static void springboard_close(void)
 {
-    int i;
-    for (i = 0; i < g_icons_count; i++) free(g_icons[i].png);
-    g_icons_count = 0;
     if (g_springboard) { sbservices_client_free(g_springboard); g_springboard = NULL; }
     if (g_icon_device) { device_release(g_icon_device); g_icon_device = NULL; }
 }
 
-static BOOL icon_is_cached(const char* bundle)
+static BOOL icon_is_cached(const char* udid, const char* bundle)
 {
     BOOL cached;
     EnterCriticalSection(&g_icon_lock);
-    cached = icon_cache_find(bundle) != NULL;
+    cached = icon_cache_find(udid, bundle) != NULL;
     LeaveCriticalSection(&g_icon_lock);
     return cached;
 }
 
 /*
- * Gets the PNG icon of an application from SpringBoard (cached per device).
- * On success *png points to a copy the caller must free().
+ * Gets the PNG icon of an application from SpringBoard. Icons are cached, so
+ * each one is asked for only once. On success *png points to a copy the
+ * caller must free().
  */
-static BOOL get_application_png(const char* bundle, unsigned char** png, uint32_t* size)
+static BOOL get_application_png(const char* udid, const char* bundle, unsigned char** png, uint32_t* size)
 {
-    Device* device = device_acquire(FALSE, NULL, 0);
+    Device* device = NULL;
     IconEntry* entry;
     BOOL ok = FALSE;
 
@@ -95,15 +95,18 @@ static BOOL get_application_png(const char* bundle, unsigned char** png, uint32_
     *size = 0;
     EnterCriticalSection(&g_icon_lock);
 
-    /* Another device (or none): the cached icons are no longer valid. */
-    if (device != g_icon_device) {
-        icon_cache_reset();
-        g_icon_device = device;             /* the cache keeps our reference */
-        device = NULL;
+    entry = icon_cache_find(udid, bundle);
+    if (!entry) {
+        /* Not cached: ask the device. One SpringBoard connection is kept open
+           for the device used last. */
+        device = device_acquire(udid, FALSE, NULL, 0);
+        if (device != g_icon_device) {
+            springboard_close();
+            g_icon_device = device;         /* keeps our reference */
+            device = NULL;
+        }
+        if (!g_icon_device) goto done;
     }
-    if (!g_icon_device) goto done;
-
-    entry = icon_cache_find(bundle);
     if (!entry) {
         char* data = NULL;
         uint64_t data_size = 0;
@@ -132,6 +135,7 @@ static BOOL get_application_png(const char* bundle, unsigned char** png, uint32_
             g_icons_capacity = capacity;
         }
         entry = &g_icons[g_icons_count++];
+        copy_text(entry->udid, UDID_MAX, udid);
         copy_text(entry->bundle, APP_ID_MAX, bundle);
         entry->png = NULL;
         entry->size = 0;
@@ -246,7 +250,8 @@ int extract_icon(WCHAR* remote_name, int extract_flags, HICON* icon)
 
     switch (rp.mode) {
     case M_ROOT:      if (strcmp(rp.path, "/") == 0)        stock_id = ICON_DRIVE;       break;
-    case M_USER:      if (strcmp(rp.path, "/") == 0)        stock_id = ICON_CELLPHONE;   break;
+    case M_TOP:       if (rp.udid[0])                       stock_id = ICON_CELLPHONE;   break;  /* a device folder */
+    case M_USER:      if (strcmp(rp.path, "/") == 0)        stock_id = ICON_REMOVABLE;   break;
     case M_PHOTOS:    if (strcmp(rp.path, "/DCIM") == 0)    stock_id = ICON_CAMERA;      break;
     case M_PROCESSED: if (strcmp(rp.path, "/DCIM") == 0)    stock_id = ICON_IMAGE_FILES; break;
     case M_ICLOUD:    if (strcmp(rp.path, ICLOUD_DIR) == 0) stock_id = ICON_WORLD;       break;
@@ -259,9 +264,9 @@ int extract_icon(WCHAR* remote_name, int extract_flags, HICON* icon)
 
             /* Asking the device takes time: let Total Commander call us again
                from its background thread. */
-            if (!icon_is_cached(rp.app) && !(extract_flags & FS_ICONFLAG_BACKGROUND)) return FS_ICON_DELAYED;
+            if (!icon_is_cached(rp.udid, rp.app) && !(extract_flags & FS_ICONFLAG_BACKGROUND)) return FS_ICON_DELAYED;
 
-            if (get_application_png(rp.app, &png, &png_size)) {
+            if (get_application_png(rp.udid, rp.app, &png, &png_size)) {
                 handle = png_to_icon(png, png_size, GetSystemMetrics(small_icon ? SM_CXSMICON : SM_CXICON));
                 free(png);
                 if (handle) {

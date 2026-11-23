@@ -65,6 +65,10 @@ Then open *Network Neighborhood* -> *iOS*.
 | `iCloud photos` | photos synced from iCloud Photos (`/PhotoData/CPLAssets`); shown only when the device has them |
 | `Applications` | documents of apps that enable file sharing, by app name |
 
+With several devices connected, the root shows one folder per device (named after the
+device) and each contains the folders above. Pick a device in the settings to work with
+only that one.
+
 `Settings` at the plugin root (Enter), or Alt+Enter on the root, opens the settings dialog:
 device selection with device information, and the options below. Alt+Enter on a file shows
 its properties.
@@ -75,7 +79,7 @@ Use the settings dialog, or edit section `[wfx_iOS]` in Total Commander's `fsplu
 
 | Key | Meaning |
 |---|---|
-| `PreferredDevice=<UDID>` | use only this device (empty = any connected device) |
+| `PreferredDevice=<UDID>` | use only this device (empty = all connected devices) |
 | `ShowAllApps=1` | list all user apps and try their full container first (developer-signed apps only) |
 | `AppNames=0` | list applications by bundle id instead of by name |
 | `LogFile=<path>` | write the trace to this file instead of `%TEMP%\wfx_iOS.log` |

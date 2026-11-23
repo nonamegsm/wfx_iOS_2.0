@@ -27,6 +27,11 @@
  *   \iCloud photos         com.apple.afc, rooted at /PhotoData/CPLAssets
  *   \Applications\<app>    com.apple.mobile.house_arrest (app documents)
  *   \Settings              pseudo file, opens the settings dialog
+ *
+ * With several devices connected (and no preferred device selected) the root
+ * shows one folder per device instead, and each contains the layout above:
+ *
+ *   \<device name>\User\...
  */
 #ifndef WFX_IOS_H
 #define WFX_IOS_H
@@ -68,6 +73,8 @@
 #define AFC_PATH_MAX    2048               /* device path, UTF-8 */
 #define TC_PATH_MAX     1024               /* Total Commander path, UTF-16 */
 #define APP_ID_MAX      200                /* bundle identifier */
+#define UDID_MAX        64                 /* device identifier */
+#define KEY_MAX         (UDID_MAX + APP_ID_MAX + 8)   /* connection key, see connection_key() */
 #define MSG_MAX         700                /* error message text */
 #define IO_CHUNK        (1024 * 1024)      /* file transfer block size */
 
@@ -121,6 +128,7 @@ typedef enum {
 
 typedef struct {
     PathMode mode;
+    char     udid[UDID_MAX];        /* device; empty = the default device */
     char     app[APP_ID_MAX];       /* bundle id, only for M_APP */
     char     path[AFC_PATH_MAX];    /* path on the device, always starts with '/' */
 } RemotePath;
@@ -130,17 +138,25 @@ void parse_path(const WCHAR* tc_path, RemotePath* out);
 BOOL is_afc_mode(PathMode mode);                            /* TRUE when files can be read there */
 void connection_key(const RemotePath* rp, char* key, int key_len);
 
-/* Table "name shown in \Applications" -> bundle id. */
-void apps_table_clear(void);
-void apps_table_add(const WCHAR* shown_name, const char* bundle_id);
-void apps_table_done(void);                                 /* marks the table as loaded */
-void apps_resolve(const WCHAR* shown_name, char* bundle_id, int bundle_len);
+/* Table "name shown in \Applications" -> bundle id, kept per device. */
+void apps_table_clear(const char* udid);                    /* NULL clears all devices */
+void apps_table_add(const char* udid, const WCHAR* shown_name, const char* bundle_id);
+void apps_table_done(const char* udid);                     /* marks the device's table as loaded */
+void apps_resolve(const char* udid, const WCHAR* shown_name, char* bundle_id, int bundle_len);
+
+/* Table "device folder shown in the plugin root" -> UDID (several devices connected). */
+void devices_table_clear(void);
+void devices_table_add(const WCHAR* shown_name, const char* udid);
+BOOL devices_resolve(const WCHAR* shown_name, char* udid, int udid_len);
+BOOL is_reserved_name(const WCHAR* name);                   /* TRUE for "User", "Photos", ... */
 
 /* --------------------------------------------------------------- device.c */
 
 typedef struct {
     idevice_t dev;
-    char      udid[64];
+    char      udid[UDID_MAX];
+    BOOL      is_default;           /* opened as "the default device" (preferred or first found) */
+    DWORD     last_check;           /* tick of the last "still connected?" check */
     int       ios_major;            /* 0 until the first lockdown session */
     int       has_afc2;             /* -1 unknown, 0 no, 1 yes */
     BOOL      network;              /* reached over Wi-Fi instead of USB */
@@ -152,7 +168,7 @@ typedef struct {
     Device*               device;
     afc_client_t          afc;
     house_arrest_client_t house_arrest;
-    char                  key[APP_ID_MAX + 8];
+    char                  key[KEY_MAX];
 } AfcConn;
 
 /* What we read from the device about one file. Times are ns since 1970. */
@@ -165,10 +181,12 @@ typedef struct {
 } FileStat;
 
 void    device_init(void);                                  /* called once from DllMain */
-Device* device_acquire(BOOL fresh, WCHAR* err, int err_len);/* NULL when no device; else release it */
+/* 'udid' selects the device; an empty string means the default device. */
+Device* device_acquire(const char* udid, BOOL fresh, WCHAR* err, int err_len);  /* NULL: none; else release it */
 void    device_release(Device* device);
 void    device_forget(void);                                /* e.g. another device was selected */
-BOOL    device_has_afc2(void);
+BOOL    device_has_afc2(const char* udid);
+void    device_read_name(const char* udid, WCHAR* name, int name_len);          /* empty when unknown */
 
 void    lockdown_message(lockdownd_error_t e, WCHAR* dst, int dst_len);
 BOOL    start_service(Device* device, const char* name,
@@ -203,7 +221,8 @@ typedef struct {
 
 FindList* find_list_create(const WCHAR* tc_path, WCHAR* err, int err_len);  /* NULL on failure */
 void      find_list_free(FindList* list);
-BOOL      apps_load(WCHAR* err, int err_len);               /* fills the application table */
+BOOL      apps_load(const char* udid, WCHAR* err, int err_len);   /* fills the application table */
+void      devices_load(void);                               /* fills the device folder table */
 
 /* ------------------------------------------------------------- transfer.c */
 

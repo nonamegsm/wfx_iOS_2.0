@@ -67,20 +67,34 @@ typedef struct {
     BOOL        follow_links;
 } StatArgs;
 
-static void list_top(FindList* list)
+/* Adds the "Settings" pseudo file; Enter on it opens the settings dialog. */
+static void add_settings_item(FindList* list)
+{
+    WIN32_FIND_DATAW entry;
+    memset(&entry, 0, sizeof(entry));
+    copy_wide(entry.cFileName, MAX_PATH, SETTINGS_ITEM);
+    entry.dwFileAttributes = FILE_ATTRIBUTE_NORMAL;
+    entry.ftLastWriteTime = unix_ns_to_filetime(0);
+    find_list_add(list, &entry);
+}
+
+/* The folders of one device ('udid' empty: the default device). */
+static void list_device_root(FindList* list, const char* udid)
 {
     RemotePath user;
     FileStat st;
     StatArgs args;
-    WIN32_FIND_DATAW entry;
 
-    if (device_has_afc2()) add_virtual_folder(list, L"Root");
+    if (device_has_afc2(udid)) add_virtual_folder(list, L"Root");
     add_virtual_folder(list, L"User");
     add_virtual_folder(list, L"Photos");
     add_virtual_folder(list, L"Processed photos");
 
     /* Photos that came from iCloud Photos are stored outside /DCIM; show them when present. */
-    parse_path(L"\\User", &user);
+    memset(&user, 0, sizeof(user));
+    user.mode = M_USER;
+    copy_text(user.udid, UDID_MAX, udid);
+    copy_text(user.path, AFC_PATH_MAX, "/");
     args.path = ICLOUD_DIR;
     args.st = &st;
     args.follow_links = FALSE;
@@ -88,13 +102,6 @@ static void list_top(FindList* list)
         add_virtual_folder(list, L"iCloud photos");
 
     add_virtual_folder(list, L"Applications");
-
-    /* Pseudo file: Enter on it opens the settings dialog. */
-    memset(&entry, 0, sizeof(entry));
-    copy_wide(entry.cFileName, MAX_PATH, SETTINGS_ITEM);
-    entry.dwFileAttributes = FILE_ATTRIBUTE_NORMAL;
-    entry.ftLastWriteTime = unix_ns_to_filetime(0);
-    find_list_add(list, &entry);
 }
 
 /* ------------------------------------------------------------ applications */
@@ -125,6 +132,99 @@ static void make_folder_name(const char* display_name, WCHAR* dst, int dst_len)
         if (dst[i] < 32 || wcschr(L"\\/:*?\"<>|", dst[i])) dst[i] = L'_';
     while (len > 0 && (dst[len - 1] == L' ' || dst[len - 1] == L'.')) dst[--len] = 0;
     while (dst[0] == L' ') memmove(dst, dst + 1, wcslen(dst) * sizeof(WCHAR));
+}
+
+/* --------------------------------------------------------- device folders */
+
+#define CONNECTED_MAX 16
+
+/* One connected device as reported by usbmuxd. */
+typedef struct {
+    char  udid[UDID_MAX];
+    WCHAR shown[128];               /* folder name for the plugin root */
+} ConnectedDevice;
+
+/*
+ * Lists the connected devices (USB, and Wi-Fi when allowed), each once, and
+ * gives every one a folder name: its device name, made unique and valid.
+ */
+static int enumerate_devices(ConnectedDevice* devices, int max_devices)
+{
+    usbmuxd_device_info_t* list = NULL;
+    BOOL wifi = ini_get_bool("AllowWiFi", FALSE);
+    int reported = usbmuxd_get_device_list(&list);
+    int count = 0;
+    int i, k;
+
+    for (i = 0; i < reported && count < max_devices; i++) {
+        BOOL known = FALSE;
+        WCHAR name[128];
+        char name_utf8[256];
+
+        if (list[i].conn_type == CONNECTION_TYPE_NETWORK && !wifi) continue;
+        for (k = 0; k < count; k++)
+            if (strcmp(devices[k].udid, list[i].udid) == 0) known = TRUE;
+        if (known) continue;                /* the same device over USB and Wi-Fi */
+
+        copy_text(devices[count].udid, UDID_MAX, list[i].udid);
+        device_read_name(list[i].udid, name, 128);
+        wide_to_utf8(name, name_utf8, sizeof(name_utf8));
+        make_folder_name(name_utf8, devices[count].shown, 100);
+        if (devices[count].shown[0] == 0) utf8_to_wide(list[i].udid, devices[count].shown, 100);
+
+        /* The name must not clash with our own folders or with another device. */
+        known = is_reserved_name(devices[count].shown);
+        for (k = 0; k < count; k++)
+            if (_wcsicmp(devices[k].shown, devices[count].shown) == 0) known = TRUE;
+        if (known) {
+            WCHAR tail[16];
+            size_t udid_len = strlen(list[i].udid);
+            utf8_to_wide(list[i].udid + (udid_len > 6 ? udid_len - 6 : 0), tail, 16);
+            append_wide(devices[count].shown, 128, L" (%s)", tail);
+        }
+        count++;
+    }
+    if (list) usbmuxd_device_list_free(&list);
+    return count;
+}
+
+/* Reads the connected devices into the "folder name -> UDID" table. Returns how many there are. */
+static int load_device_table(ConnectedDevice* devices, int max_devices)
+{
+    int count = enumerate_devices(devices, max_devices);
+    int i;
+
+    devices_table_clear();
+    for (i = 0; i < count; i++) devices_table_add(devices[i].shown, devices[i].udid);
+    return count;
+}
+
+void devices_load(void)
+{
+    ConnectedDevice devices[CONNECTED_MAX];
+    load_device_table(devices, CONNECTED_MAX);
+}
+
+/*
+ * The plugin root. Normally it shows the folders of the one device. With
+ * several devices connected, and none picked in the settings, it shows one
+ * folder per device instead.
+ */
+static void list_top(FindList* list)
+{
+    ConnectedDevice devices[CONNECTED_MAX];
+    char preferred[UDID_MAX];
+    int count, i;
+
+    ini_get_text("PreferredDevice", preferred, sizeof(preferred));
+    count = load_device_table(devices, CONNECTED_MAX);
+
+    if (count >= 2 && preferred[0] == 0) {
+        for (i = 0; i < count; i++) add_virtual_folder(list, devices[i].shown);
+    } else {
+        list_device_root(list, "");
+    }
+    add_settings_item(list);
 }
 
 /* Asks installation_proxy for the user-installed applications. Returns a plist array or NULL. */
@@ -165,13 +265,13 @@ static int compare_entries(const void* a, const void* b)
 }
 
 /*
- * Reads the applications from the device, rebuilds the name table and, when
+ * Reads the applications from one device, rebuilds its name table and, when
  * 'list' is given, adds one folder per application to it.
  *
  * From iOS 8 on only applications with file sharing can be opened, so only
  * those are listed (ShowAllApps=1 lists all of them).
  */
-static BOOL read_applications(FindList* list, WCHAR* err, int err_len)
+static BOOL read_applications(FindList* list, const char* udid, WCHAR* err, int err_len)
 {
     typedef struct { WCHAR shown[APP_ID_MAX]; char bundle[APP_ID_MAX]; BOOL duplicate; } Found;
     Device* device = NULL;
@@ -184,7 +284,7 @@ static BOOL read_applications(FindList* list, WCHAR* err, int err_len)
 
     /* Second attempt looks the device up again (it may have been replugged). */
     for (attempt = 0; attempt < 2 && !apps; attempt++) {
-        device = device_acquire(attempt == 1, err, err_len);
+        device = device_acquire(udid, attempt == 1, err, err_len);
         if (!device) continue;
         apps = browse_applications(device, err, err_len);
         if (!apps) { device_release(device); device = NULL; }
@@ -237,12 +337,12 @@ static BOOL read_applications(FindList* list, WCHAR* err, int err_len)
         }
     }
 
-    apps_table_clear();
+    apps_table_clear(udid);
     for (i = 0; i < found_count; i++) {
-        apps_table_add(found[i].shown, found[i].bundle);
+        apps_table_add(udid, found[i].shown, found[i].bundle);
         if (list) add_virtual_folder(list, found[i].shown);
     }
-    apps_table_done();
+    apps_table_done(udid);
     free(found);
 
     if (list && list->count > 1)
@@ -250,9 +350,9 @@ static BOOL read_applications(FindList* list, WCHAR* err, int err_len)
     return TRUE;
 }
 
-BOOL apps_load(WCHAR* err, int err_len)
+BOOL apps_load(const char* udid, WCHAR* err, int err_len)
 {
-    return read_applications(NULL, err, err_len);
+    return read_applications(NULL, udid, err, err_len);
 }
 
 /* ---------------------------------------------------------- device folders */
@@ -342,8 +442,12 @@ FindList* find_list_create(const WCHAR* tc_path, WCHAR* err, int err_len)
     parse_path(tc_path, &rp);
 
     switch (rp.mode) {
-    case M_TOP:     list_top(list); ok = TRUE; break;
-    case M_APPLIST: ok = read_applications(list, err, err_len); break;
+    case M_TOP:
+        if (rp.udid[0]) list_device_root(list, rp.udid);    /* inside a device folder */
+        else            list_top(list);
+        ok = TRUE;
+        break;
+    case M_APPLIST: ok = read_applications(list, rp.udid, err, err_len); break;
     case M_INVALID:
     case M_SETTINGS: break;
     default:        ok = list_folder(&rp, list, err, err_len); break;

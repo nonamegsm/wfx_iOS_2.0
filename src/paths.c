@@ -6,70 +6,105 @@
  */
 #include "wfx_ios.h"
 
-/* -------------------------------------------------- application name table */
+/*
+ * Two small tables translate the names the user sees into identifiers:
+ *
+ *   applications   "Keynote"        -> "com.apple.Keynote"   (per device)
+ *   devices        "Anna's iPhone"  -> UDID                  (several devices connected)
+ *
+ * Both are filled by listing.c when the corresponding folder is read.
+ */
 
 /* One application as shown in \Applications. */
 typedef struct {
+    char  udid[UDID_MAX];           /* device the entry belongs to ("" = default device) */
     WCHAR shown[APP_ID_MAX];        /* folder name the user sees */
     char  bundle[APP_ID_MAX];       /* e.g. "com.example.app" */
 } AppEntry;
 
-static CRITICAL_SECTION g_apps_lock;
-static AppEntry*        g_apps = NULL;
-static int              g_apps_count = 0;
-static int              g_apps_capacity = 0;
-static BOOL             g_apps_loaded = FALSE;      /* FALSE until \Applications was read once */
+/* One device folder as shown in the plugin root. */
+typedef struct {
+    WCHAR shown[128];
+    char  udid[UDID_MAX];
+} DeviceEntry;
+
+#define LOADED_MAX   16             /* devices whose application list was read */
+#define DEVICE_NAMES 16             /* device folders */
+
+static CRITICAL_SECTION g_tables_lock;          /* protects everything below */
+
+static AppEntry*   g_apps = NULL;
+static int         g_apps_count = 0;
+static int         g_apps_capacity = 0;
+static char        g_apps_loaded[LOADED_MAX][UDID_MAX];
+static int         g_apps_loaded_count = 0;
+
+static DeviceEntry g_device_names[DEVICE_NAMES];
+static int         g_device_names_count = 0;
+static BOOL        g_device_names_loaded = FALSE;
 
 void paths_init(void)
 {
-    InitializeCriticalSection(&g_apps_lock);
+    InitializeCriticalSection(&g_tables_lock);
 }
 
-static void apps_lock(void)
+/* -------------------------------------------------- application name table */
+
+/* Removes the entries of one device (udid == NULL: of all devices). */
+void apps_table_clear(const char* udid)
 {
-    EnterCriticalSection(&g_apps_lock);
+    int i, kept = 0;
+
+    EnterCriticalSection(&g_tables_lock);
+    for (i = 0; i < g_apps_count; i++)
+        if (udid && strcmp(g_apps[i].udid, udid) != 0) g_apps[kept++] = g_apps[i];
+    g_apps_count = kept;
+
+    kept = 0;
+    for (i = 0; i < g_apps_loaded_count; i++)
+        if (udid && strcmp(g_apps_loaded[i], udid) != 0) {
+            if (kept != i) memcpy(g_apps_loaded[kept], g_apps_loaded[i], UDID_MAX);
+            kept++;
+        }
+    g_apps_loaded_count = kept;
+    LeaveCriticalSection(&g_tables_lock);
 }
 
-void apps_table_clear(void)
+void apps_table_add(const char* udid, const WCHAR* shown_name, const char* bundle_id)
 {
-    apps_lock();
-    g_apps_count = 0;
-    g_apps_loaded = FALSE;
-    LeaveCriticalSection(&g_apps_lock);
-}
-
-void apps_table_add(const WCHAR* shown_name, const char* bundle_id)
-{
-    apps_lock();
+    EnterCriticalSection(&g_tables_lock);
     if (g_apps_count == g_apps_capacity) {
         int capacity = g_apps_capacity ? g_apps_capacity * 2 : 64;
         AppEntry* grown = (AppEntry*)realloc(g_apps, capacity * sizeof(AppEntry));
-        if (!grown) { LeaveCriticalSection(&g_apps_lock); return; }
+        if (!grown) { LeaveCriticalSection(&g_tables_lock); return; }
         g_apps = grown;
         g_apps_capacity = capacity;
     }
+    copy_text(g_apps[g_apps_count].udid, UDID_MAX, udid);
     copy_wide(g_apps[g_apps_count].shown, APP_ID_MAX, shown_name);
     copy_text(g_apps[g_apps_count].bundle, APP_ID_MAX, bundle_id);
     g_apps_count++;
-    LeaveCriticalSection(&g_apps_lock);
+    LeaveCriticalSection(&g_tables_lock);
 }
 
-void apps_table_done(void)
+void apps_table_done(const char* udid)
 {
-    apps_lock();
-    g_apps_loaded = TRUE;
-    LeaveCriticalSection(&g_apps_lock);
+    EnterCriticalSection(&g_tables_lock);
+    if (g_apps_loaded_count < LOADED_MAX)
+        copy_text(g_apps_loaded[g_apps_loaded_count++], UDID_MAX, udid);
+    LeaveCriticalSection(&g_tables_lock);
 }
 
 /* Looks a folder name up in the table. Returns FALSE when it is not there. */
-static BOOL apps_lookup(const WCHAR* shown_name, char* bundle_id, int bundle_len, BOOL* loaded)
+static BOOL apps_lookup(const char* udid, const WCHAR* shown_name, char* bundle_id, int bundle_len, BOOL* loaded)
 {
     WCHAR as_wide[APP_ID_MAX];
     BOOL found = FALSE;
     int i;
 
-    apps_lock();
+    EnterCriticalSection(&g_tables_lock);
     for (i = 0; i < g_apps_count && !found; i++) {
+        if (strcmp(g_apps[i].udid, udid) != 0) continue;
         /* The bundle id itself is accepted too, so old paths keep working. */
         utf8_to_wide(g_apps[i].bundle, as_wide, APP_ID_MAX);
         if (_wcsicmp(g_apps[i].shown, shown_name) == 0 || _wcsicmp(as_wide, shown_name) == 0) {
@@ -77,8 +112,10 @@ static BOOL apps_lookup(const WCHAR* shown_name, char* bundle_id, int bundle_len
             found = TRUE;
         }
     }
-    *loaded = g_apps_loaded;
-    LeaveCriticalSection(&g_apps_lock);
+    *loaded = FALSE;
+    for (i = 0; i < g_apps_loaded_count; i++)
+        if (strcmp(g_apps_loaded[i], udid) == 0) *loaded = TRUE;
+    LeaveCriticalSection(&g_tables_lock);
     return found;
 }
 
@@ -87,13 +124,62 @@ static BOOL apps_lookup(const WCHAR* shown_name, char* bundle_id, int bundle_len
  * inside an application folder, the table is still empty: load it once.
  * An unknown name is used as a bundle id as it is.
  */
-void apps_resolve(const WCHAR* shown_name, char* bundle_id, int bundle_len)
+void apps_resolve(const char* udid, const WCHAR* shown_name, char* bundle_id, int bundle_len)
 {
     BOOL loaded;
 
-    if (apps_lookup(shown_name, bundle_id, bundle_len, &loaded)) return;
-    if (!loaded && apps_load(NULL, 0) && apps_lookup(shown_name, bundle_id, bundle_len, &loaded)) return;
+    if (apps_lookup(udid, shown_name, bundle_id, bundle_len, &loaded)) return;
+    if (!loaded && apps_load(udid, NULL, 0) && apps_lookup(udid, shown_name, bundle_id, bundle_len, &loaded)) return;
     wide_to_utf8(shown_name, bundle_id, bundle_len);
+}
+
+/* ------------------------------------------------------ device name table */
+
+void devices_table_clear(void)
+{
+    EnterCriticalSection(&g_tables_lock);
+    g_device_names_count = 0;
+    g_device_names_loaded = TRUE;       /* an empty table is a valid result */
+    LeaveCriticalSection(&g_tables_lock);
+}
+
+void devices_table_add(const WCHAR* shown_name, const char* udid)
+{
+    EnterCriticalSection(&g_tables_lock);
+    if (g_device_names_count < DEVICE_NAMES) {
+        copy_wide(g_device_names[g_device_names_count].shown, 128, shown_name);
+        copy_text(g_device_names[g_device_names_count].udid, UDID_MAX, udid);
+        g_device_names_count++;
+    }
+    LeaveCriticalSection(&g_tables_lock);
+}
+
+static BOOL devices_lookup(const WCHAR* shown_name, char* udid, int udid_len, BOOL* loaded)
+{
+    BOOL found = FALSE;
+    int i;
+
+    EnterCriticalSection(&g_tables_lock);
+    for (i = 0; i < g_device_names_count && !found; i++) {
+        if (_wcsicmp(g_device_names[i].shown, shown_name) == 0) {
+            copy_text(udid, udid_len, g_device_names[i].udid);
+            found = TRUE;
+        }
+    }
+    *loaded = g_device_names_loaded;
+    LeaveCriticalSection(&g_tables_lock);
+    return found;
+}
+
+/* Device folder name -> UDID. Reads the device list once if it was never read. */
+BOOL devices_resolve(const WCHAR* shown_name, char* udid, int udid_len)
+{
+    BOOL loaded;
+
+    if (devices_lookup(shown_name, udid, udid_len, &loaded)) return TRUE;
+    if (loaded) return FALSE;
+    devices_load();
+    return devices_lookup(shown_name, udid, udid_len, &loaded);
 }
 
 /* ------------------------------------------------------------ path parsing */
@@ -104,12 +190,25 @@ BOOL is_afc_mode(PathMode mode)
            mode == M_ICLOUD || mode == M_APP;
 }
 
-/* Paths with the same key can share one AFC connection. */
+/* Paths with the same key can share one AFC connection: "<udid>|<service>[:<app>]". */
 void connection_key(const RemotePath* rp, char* key, int key_len)
 {
-    if (rp->mode == M_ROOT)      copy_text(key, key_len, "afc2");
-    else if (rp->mode == M_APP)  { _snprintf(key, key_len - 1, "app:%s", rp->app); key[key_len - 1] = 0; }
-    else                         copy_text(key, key_len, "afc");
+    if (rp->mode == M_ROOT)      _snprintf(key, key_len - 1, "%s|afc2", rp->udid);
+    else if (rp->mode == M_APP)  _snprintf(key, key_len - 1, "%s|app:%s", rp->udid, rp->app);
+    else                         _snprintf(key, key_len - 1, "%s|afc", rp->udid);
+    key[key_len - 1] = 0;
+}
+
+/* The fixed folder names of the plugin; a device folder must not use one of them. */
+BOOL is_reserved_name(const WCHAR* name)
+{
+    static const WCHAR* reserved[] = {
+        L"Root", L"User", L"Photos", L"Processed photos", L"iCloud photos", L"Applications", SETTINGS_ITEM
+    };
+    int i;
+    for (i = 0; i < (int)(sizeof(reserved) / sizeof(reserved[0])); i++)
+        if (_wcsicmp(name, reserved[i]) == 0) return TRUE;
+    return FALSE;
 }
 
 /* Copies the next path component (up to '\' or the end) and returns what follows it. */
@@ -129,6 +228,10 @@ static const WCHAR* next_component(const WCHAR* path, WCHAR* component, int comp
  *     \Applications\Keynote\Documents\a.key
  * into the mode (M_APP), the application ("com.apple.Keynote") and the path
  * on the device ("/Documents/a.key").
+ *
+ * With several devices connected the path starts with a device folder:
+ *     \Anna's iPhone\Applications\Keynote\Documents\a.key
+ * which additionally sets the device (udid).
  */
 void parse_path(const WCHAR* tc_path, RemotePath* out)
 {
@@ -152,6 +255,13 @@ void parse_path(const WCHAR* tc_path, RemotePath* out)
 
     rest = next_component(path[0] == L'\\' ? path + 1 : path, first, APP_ID_MAX);
 
+    /* A first component that is not one of our folders must be a device folder. */
+    if (!is_reserved_name(first)) {
+        if (!devices_resolve(first, out->udid, UDID_MAX)) return;      /* M_INVALID */
+        if (*rest == 0) { out->mode = M_TOP; return; }                 /* the device's own root */
+        rest = next_component(rest + 1, first, APP_ID_MAX);
+    }
+
     if      (wcscmp(first, L"Root") == 0)             out->mode = M_ROOT;
     else if (wcscmp(first, L"User") == 0)             out->mode = M_USER;
     else if (wcscmp(first, L"Photos") == 0)           { out->mode = M_PHOTOS;    prefix = "/DCIM"; }
@@ -163,7 +273,7 @@ void parse_path(const WCHAR* tc_path, RemotePath* out)
         if (*rest == 0) { out->mode = M_APPLIST; return; }
         rest = next_component(rest + 1, app_name, APP_ID_MAX);
         out->mode = M_APP;
-        apps_resolve(app_name, out->app, APP_ID_MAX);
+        apps_resolve(out->udid, app_name, out->app, APP_ID_MAX);
     }
     else return;                    /* M_INVALID */
 

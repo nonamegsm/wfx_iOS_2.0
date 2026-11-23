@@ -189,7 +189,7 @@ static afc_error_t op_set_time(afc_client_t afc, void* arg)
 int __stdcall FsRenMovFileW(WCHAR* old_name, WCHAR* new_name, BOOL move, BOOL overwrite, RemoteInfoStruct* info)
 {
     RemotePath src, dst;
-    char src_key[APP_ID_MAX + 8], dst_key[APP_ID_MAX + 8];
+    char src_key[KEY_MAX], dst_key[KEY_MAX];
     BOOL same_container;
     afc_error_t e;
     int result;
