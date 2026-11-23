@@ -94,7 +94,7 @@ Use the settings dialog, or edit section `[wfx_iOS]` in Total Commander's `fsplu
 - USB only by default; Wi-Fi-synced devices are optional (`AllowWiFi=1`)
 - Unplugging the device no longer hangs the plugin
 - Error messages say which step failed, and a trace file is written
-- Settings dialog with device selection; file properties are a plain message box for now
+- Settings dialog with device selection, and a file properties dialog
 - Icons: real home-screen icons for applications, and distinct icons for the top-level folders
 
 ## Troubleshooting

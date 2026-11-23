@@ -1,5 +1,5 @@
 /*
- * dialogs.c - the settings dialog and the file properties box.
+ * dialogs.c - the settings dialog and the file properties dialog.
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */
@@ -332,40 +332,89 @@ static const WCHAR* type_name(const FileStat* st)
     return L"File";
 }
 
+/* Everything the properties dialog shows, prepared as text. */
+typedef struct {
+    WCHAR name[TC_PATH_MAX];
+    WCHAR path[TC_PATH_MAX];
+    WCHAR type[64];
+    WCHAR size[128];
+    WCHAR created[80];
+    WCHAR modified[80];
+    WCHAR links[32];
+    WCHAR blocks[32];
+    WCHAR target[TC_PATH_MAX];
+} PropertiesText;
+
+static INT_PTR CALLBACK properties_proc(HWND dialog, UINT message, WPARAM wparam, LPARAM lparam)
+{
+    if (message == WM_INITDIALOG) {
+        const PropertiesText* text = (const PropertiesText*)lparam;
+        HICON icon = LoadIconW(g_inst, MAKEINTRESOURCEW(IDI_PLUGIN));
+        WCHAR title[TC_PATH_MAX + 32];
+
+        SendMessageW(dialog, WM_SETICON, ICON_SMALL, (LPARAM)icon);
+        format_wide(title, TC_PATH_MAX + 32, L"Properties of %s", text->name);
+        SetWindowTextW(dialog, title);
+        SetDlgItemTextW(dialog, IDC_P_NAME, text->name);
+        SetDlgItemTextW(dialog, IDC_P_PATH, text->path);
+        SetDlgItemTextW(dialog, IDC_P_TYPE, text->type);
+        SetDlgItemTextW(dialog, IDC_P_SIZE, text->size);
+        SetDlgItemTextW(dialog, IDC_P_CREATED, text->created);
+        SetDlgItemTextW(dialog, IDC_P_MODIFIED, text->modified);
+        SetDlgItemTextW(dialog, IDC_P_LINKS, text->links);
+        SetDlgItemTextW(dialog, IDC_P_BLOCKS, text->blocks);
+        SetDlgItemTextW(dialog, IDC_P_TARGET, text->target);
+        SetFocus(GetDlgItem(dialog, IDOK));
+        return FALSE;                   /* we set the focus ourselves */
+    }
+    if (message == WM_COMMAND && (LOWORD(wparam) == IDOK || LOWORD(wparam) == IDCANCEL)) {
+        EndDialog(dialog, LOWORD(wparam));
+        return TRUE;
+    }
+    return FALSE;
+}
+
 /* Alt+Enter on a file or folder. */
 void show_file_properties(HWND parent, const WCHAR* remote_name, const RemotePath* rp)
 {
     PropertiesArgs* args = (PropertiesArgs*)calloc(1, sizeof(PropertiesArgs));
+    PropertiesText* text = (PropertiesText*)calloc(1, sizeof(PropertiesText));
     WCHAR err[MSG_MAX] = L"";
-    WCHAR text[1024], title[TC_PATH_MAX + 32], size_text[64], created[80], modified[80];
-    FileStat* st;
+    const WCHAR* last_backslash;
+    const FileStat* st;
 
-    if (!args) return;
+    if (!args || !text) { free(args); free(text); return; }
     args->path = rp->path;
     if (afc_run(rp, op_properties, args, err, MSG_MAX) != AFC_E_SUCCESS) {
         show_error(err[0] ? err : L"Could not read file information.");
         free(args);
+        free(text);
         return;
     }
     st = &args->st;
 
-    format_wide(text, 1024, L"Type:\t\t%s", type_name(st));
-    if (st->is_link) {
-        WCHAR target[TC_PATH_MAX];
-        utf8_to_wide(st->target, target, TC_PATH_MAX);
-        append_wide(text, 1024, L"\nTarget:\t\t%.600s", target);
-    }
-    if (st->is_dir && args->counted) append_wide(text, 1024, L"\nContains:\t%d elements", args->entries);
-    if (!st->is_dir) {
-        StrFormatByteSizeW((LONGLONG)st->size, size_text, 64);
-        append_wide(text, 1024, L"\nSize:\t\t%s (%I64u bytes)", size_text, st->size);
-    }
-    format_time(st->birth, created, 80);
-    format_time(st->mtime, modified, 80);
-    append_wide(text, 1024, L"\nLinks:\t\t%I64u\nBlocks:\t\t%I64u\nCreated:\t\t%s\nModified:\t%s",
-                st->nlink, st->blocks, created, modified);
+    /* Name = last component of the Total Commander path. */
+    last_backslash = wcsrchr(remote_name, L'\\');
+    copy_wide(text->name, TC_PATH_MAX, last_backslash ? last_backslash + 1 : remote_name);
+    utf8_to_wide(rp->path, text->path, TC_PATH_MAX);
+    copy_wide(text->type, 64, type_name(st));
 
-    format_wide(title, TC_PATH_MAX + 32, L"Properties of %s", remote_name);
-    MessageBoxW(parent, text, title, MB_OK | MB_ICONINFORMATION);
+    if (st->is_dir) {
+        if (args->counted) format_wide(text->size, 128, L"%d entries", args->entries);
+        else               copy_wide(text->size, 128, L"-");
+    } else {
+        WCHAR rounded[64];
+        StrFormatByteSizeW((LONGLONG)st->size, rounded, 64);
+        format_wide(text->size, 128, L"%s (%I64u bytes)", rounded, st->size);
+    }
+    format_time(st->birth, text->created, 80);
+    format_time(st->mtime, text->modified, 80);
+    format_wide(text->links, 32, L"%I64u", st->nlink);
+    format_wide(text->blocks, 32, L"%I64u", st->blocks);
+    if (st->is_link) utf8_to_wide(st->target, text->target, TC_PATH_MAX);
+    else             copy_wide(text->target, TC_PATH_MAX, L"-");
+
+    DialogBoxParamW(g_inst, MAKEINTRESOURCEW(IDD_PROPERTIES), parent, properties_proc, (LPARAM)text);
     free(args);
+    free(text);
 }

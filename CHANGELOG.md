@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.2
+
+- File properties (Alt+Enter) are a real dialog; the values can be selected and copied.
+
 ## 2.1
 
 - Source rewritten as plain, commented C (C99 style), split into modules.
