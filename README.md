@@ -65,6 +65,7 @@ Then open *Network Neighborhood* -> *iOS*.
 | `iCloud photos` | photos synced from iCloud Photos (`/PhotoData/CPLAssets`); shown only when the device has them |
 | `Photos by month` | the whole photo library, one folder per month (`2026-11`), with original file names |
 | `Applications` | documents of apps that enable file sharing, by app name |
+| `Device information` | not a folder: Enter opens a window with everything the device reports |
 
 With several devices connected, the root shows one folder per device (named after the
 device) and each contains the folders above. Pick a device in the settings to work with
@@ -73,6 +74,19 @@ only that one.
 `Settings` at the plugin root (Enter), or Alt+Enter on the root, opens the settings dialog:
 device selection with device information, and the options below. Alt+Enter on a file shows
 its properties.
+
+## Device information
+
+Enter on `Device information` (or the button in the settings dialog) opens a window with
+what the device reports about itself: name, model, system version and build, serial number,
+UDID, ECID, IMEI / MEID / ICCID on cellular devices, Wi-Fi, Bluetooth and Ethernet addresses,
+storage, battery, language and region, and after these every remaining value under the
+device's own key names. A value can be copied, and the whole list copied or saved as text.
+
+The device must be unlocked and trusted; otherwise only a few basic values are available.
+Which values exist depends on the model and system version. These identifiers are shown
+only in the window; the plugin does not write them to its log (the optional full protocol
+trace, `Debug=1`, records all traffic and therefore does contain them).
 
 ## Photos by month
 
@@ -183,6 +197,7 @@ The plugin is plain C (C99 style), one module per job:
 | `src/icons.c` | folder and application icons |
 | `src/columns.c` | extra file details for custom columns |
 | `src/dialogs.c` | settings dialog, file properties |
+| `src/info.c` | device information window |
 | `src/util.c` | strings, time, ini file, log file, error box |
 | `src/lang.c` | all user-visible texts in four languages |
 | `src/wfx_ios.h` | shared declarations and an overview |

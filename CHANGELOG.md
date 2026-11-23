@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.8
+
+- `Device information` window: serial number, IMEI, ECID, UDID, Wi-Fi / Bluetooth addresses,
+  model, system version, storage, battery and every other value the device reports.
+  Copy one value, copy everything, or save it to a text file. Opened with Enter on
+  `Device information` in a device's folder, or from the settings dialog.
+
 ## 2.7
 
 - Translations: Ukrainian, Russian and Polish, next to English. The language follows

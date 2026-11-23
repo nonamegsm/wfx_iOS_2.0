@@ -18,6 +18,7 @@
 #define ICON_IMAGE_FILES   72
 #define ICON_CELLPHONE     97
 #define ICON_CAMERA        98
+#define ICON_INFO          79
 #define ICON_SETTINGS      106
 
 /* PNG data of one application icon, as delivered by the device. */
@@ -258,6 +259,7 @@ int extract_icon(WCHAR* remote_name, int extract_flags, HICON* icon)
     case M_MONTHS:    if (strcmp(rp.path, "/") == 0)        stock_id = ICON_IMAGE_FILES; break;
     case M_APPLIST:   stock_id = ICON_APPLICATION; break;
     case M_SETTINGS:  stock_id = ICON_SETTINGS;    break;
+    case M_INFO:      stock_id = ICON_INFO;        break;
     case M_APP:
         if (strcmp(rp.path, "/") == 0) {
             unsigned char* png = NULL;

@@ -73,6 +73,7 @@
 #define PLUGIN_TITLE    L"iOS"             /* message box caption */
 #define INI_SECTION     "wfx_iOS"
 #define SETTINGS_ITEM   L"Settings"        /* pseudo file in the plugin root */
+#define INFO_ITEM       L"Device information"  /* pseudo file in a device's root */
 #define ICLOUD_DIR      "/PhotoData/CPLAssets"
 #define MONTHS_FOLDER   L"Photos by month"
 
@@ -185,6 +186,24 @@ typedef enum {
     S_TYPE_LINK,
     S_TYPE_BLOCK,
     S_TYPE_DEVICE,
+    S_BTN_DEVINFO,
+    S_DLG_INFO,
+    S_COL_PROPERTY,
+    S_COL_VALUE,
+    S_BTN_COPY_VALUE,
+    S_BTN_COPY_ALL,
+    S_BTN_SAVE,
+    S_BTN_CLOSE,
+    S_SEC_MAIN,
+    S_SEC_IDS,
+    S_SEC_STORAGE,
+    S_SEC_BATTERY,
+    S_SEC_REGION,
+    S_SEC_OTHER,
+    S_INFO_LIMITED,
+    S_YES,
+    S_NO,
+    S_ERR_SAVE,
     S_COUNT
 } StringId;
 
@@ -204,7 +223,8 @@ typedef enum {
     M_MONTHS,       /* \Photos by month and its month folders (files inside become M_USER) */
     M_APPLIST,      /* \Applications */
     M_APP,          /* inside one application */
-    M_SETTINGS      /* \Settings */
+    M_SETTINGS,     /* \Settings */
+    M_INFO          /* \Device information */
 } PathMode;
 
 typedef struct {
@@ -344,6 +364,7 @@ int  columns_get_value(const WCHAR* file_name, int field_index, void* value, int
 /* -------------------------------------------------------------- dialogs.c */
 
 void show_settings(HWND parent);
+void show_device_info(HWND parent, const char* udid);     /* info.c */
 void show_file_properties(HWND parent, const WCHAR* remote_name, const RemotePath* rp);
 
 #endif /* WFX_IOS_H */

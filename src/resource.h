@@ -11,6 +11,7 @@
 #define IDC_OPENLOG     1008
 #define IDC_REFRESH     1009
 #define IDC_ABOUT       1010
+#define IDC_DEVINFO     1011
 
 #define IDD_PROPERTIES  201
 #define IDC_P_NAME      1101
@@ -22,6 +23,12 @@
 #define IDC_P_LINKS     1107
 #define IDC_P_BLOCKS    1108
 #define IDC_P_TARGET    1109
+
+#define IDD_INFO        202
+#define IDC_INFO_LIST   1301
+#define IDC_INFO_COPY   1302
+#define IDC_INFO_COPYALL 1303
+#define IDC_INFO_SAVE   1304
 
 /* Labels that are translated when a dialog opens (see dialogs.c) */
 #define IDC_GRP_DEVICE  1201

@@ -67,12 +67,12 @@ typedef struct {
     BOOL        follow_links;
 } StatArgs;
 
-/* Adds the "Settings" pseudo file; Enter on it opens the settings dialog. */
-static void add_settings_item(FindList* list)
+/* Adds a pseudo file ("Settings", "Device information"); Enter on it opens a window. */
+static void add_pseudo_file(FindList* list, const WCHAR* name)
 {
     WIN32_FIND_DATAW entry;
     memset(&entry, 0, sizeof(entry));
-    copy_wide(entry.cFileName, MAX_PATH, SETTINGS_ITEM);
+    copy_wide(entry.cFileName, MAX_PATH, name);
     entry.dwFileAttributes = FILE_ATTRIBUTE_NORMAL;
     entry.ftLastWriteTime = unix_ns_to_filetime(0);
     find_list_add_entry(list, &entry);
@@ -103,6 +103,7 @@ static void list_device_root(FindList* list, const char* udid)
     if (photos_available(udid)) find_list_add_folder(list, MONTHS_FOLDER);
 
     find_list_add_folder(list, L"Applications");
+    add_pseudo_file(list, INFO_ITEM);
 }
 
 /* ------------------------------------------------------------ applications */
@@ -225,7 +226,7 @@ static void list_top(FindList* list)
     } else {
         list_device_root(list, "");
     }
-    add_settings_item(list);
+    add_pseudo_file(list, SETTINGS_ITEM);
 }
 
 /* Asks installation_proxy for the user-installed applications. Returns a plist array or NULL. */
@@ -455,7 +456,8 @@ FindList* find_list_create(const WCHAR* tc_path, WCHAR* err, int err_len)
         else                           ok = photos_list_month(rp.udid, rp.path + 1, list, err, err_len);
         break;
     case M_INVALID:
-    case M_SETTINGS: break;
+    case M_SETTINGS:
+    case M_INFO:    break;
     default:        ok = list_folder(&rp, list, err, err_len); break;
     }
 

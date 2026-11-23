@@ -219,6 +219,7 @@ static void settings_load(HWND dialog)
     set_text(dialog, IDC_DEBUG, S_CHK_DEBUG);
     set_text(dialog, IDC_LBL_LANG, S_LBL_LANGUAGE);
     set_text(dialog, IDC_OPENLOG, S_BTN_OPENLOG);
+    set_text(dialog, IDC_DEVINFO, S_BTN_DEVINFO);
     set_text(dialog, IDOK, S_BTN_OK);
     set_text(dialog, IDCANCEL, S_BTN_CANCEL);
 
@@ -315,6 +316,11 @@ static INT_PTR CALLBACK settings_proc(HWND dialog, UINT message, WPARAM wparam, 
                 ShellExecuteW(dialog, L"open", L"notepad.exe", quoted, NULL, SW_SHOWNORMAL);
             }
             return TRUE;
+        case IDC_DEVINFO: {
+            /* Everything the selected device reports; "all devices" means the first one. */
+            int selected = (int)SendDlgItemMessageW(dialog, IDC_DEVICE, CB_GETCURSEL, 0, 0);
+            show_device_info(dialog, (selected > 0 && selected < state->count) ? state->udids[selected] : "");
+            return TRUE; }
         case IDOK:
             settings_save(dialog, state);
             EndDialog(dialog, IDOK);

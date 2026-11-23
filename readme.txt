@@ -22,6 +22,8 @@ Folders
   iCloud photos     photos synced from iCloud Photos (shown only when present)
   Photos by month   the whole photo library, one folder per month
   Applications      documents of apps that enable file sharing, by app name
+  Device information  (Enter) serial number, IMEI, addresses, storage, battery
+                    and everything else the device reports; copy or save as text
 
 "Settings" at the plugin root (Enter), or Alt+Enter on the root, opens the
 settings dialog. Alt+Enter on a file shows its properties.

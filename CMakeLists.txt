@@ -26,6 +26,7 @@ add_library(wfx_iOS SHARED
     src/icons.c
     src/columns.c
     src/dialogs.c
+    src/info.c
     src/util.c
     src/lang.c
     src/wfx_ios.h
@@ -48,7 +49,7 @@ endif()
 target_link_libraries(wfx_iOS PRIVATE
     unofficial::libimobiledevice::libimobiledevice
     unofficial::sqlite3::sqlite3
-    shlwapi shell32 ole32 windowscodecs uuid ws2_32 crypt32 iphlpapi)
+    shlwapi shell32 ole32 windowscodecs uuid ws2_32 crypt32 iphlpapi comctl32 comdlg32)
 
 if(CMAKE_SIZEOF_VOID_P EQUAL 8)
     set_target_properties(wfx_iOS PROPERTIES SUFFIX ".wfx64")
