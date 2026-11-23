@@ -209,6 +209,7 @@ typedef enum {
     S_ERR_HOME_READ,
     S_ERR_HOME_WRITE,
     S_ERR_HOME_FILE,
+    S_ERR_HOME_IGNORED,
     S_DLG_ARRANGE,
     S_A_NEWFOLDER,
     S_A_NEWPAGE,
@@ -411,7 +412,8 @@ typedef struct {
 } HomeItem;
 
 plist_t home_read_layout(const char* udid, WCHAR* err, int err_len);   /* caller: plist_free() */
-BOOL    home_apply_layout(const char* udid, plist_t layout);          /* saves a backup first */
+BOOL    home_apply_layout(const char* udid, plist_t layout, WCHAR* err, int err_len);  /* saves a backup first */
+int     home_folder_page_size(plist_t layout);                         /* icons on one page of a folder */
 BOOL    home_layout_is_valid(plist_t layout);
 BOOL    home_is_folder(plist_t item);
 int     home_collect(plist_t container, HomeItem* items, int items_max);

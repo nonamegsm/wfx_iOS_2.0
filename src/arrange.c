@@ -22,7 +22,6 @@
 
 #define ITEMS_MAX           1024    /* icons in one container */
 #define ICON_SLOTS_MAX      2048    /* different applications with a loaded icon */
-#define FOLDER_PAGE_SIZE    9       /* icons on one page inside a folder */
 #define TITLE_LEN           128
 #define STOCK_APPLICATION   2       /* Windows stock icons for items without their own */
 #define STOCK_FOLDER        3
@@ -64,8 +63,8 @@ static HomeItem g_items[ITEMS_MAX];         /* scratch list; the window is modal
 
 /* ----------------------------------------------------------- containers */
 
-/* Rebuilds the pages of a folder so that each holds at most FOLDER_PAGE_SIZE icons. */
-static void folder_normalize(plist_t folder)
+/* Rebuilds the pages of a folder so that each holds at most 'page_size' icons. */
+static void folder_normalize(plist_t folder, int page_size)
 {
     int count = home_collect(folder, g_items, ITEMS_MAX);
     plist_t lists = plist_new_array();
@@ -73,7 +72,7 @@ static void folder_normalize(plist_t folder)
     int i;
 
     for (i = 0; i < count; i++) {
-        if (i % FOLDER_PAGE_SIZE == 0) {
+        if (i % page_size == 0) {
             page = plist_new_array();
             plist_array_append_item(lists, page);
         }
@@ -95,8 +94,11 @@ static plist_t take_item(plist_t container, int position)
     return taken;
 }
 
-/* Puts an icon into a container before icon number 'position'; -1 puts it at the end. */
-static void put_item(plist_t container, int position, plist_t item)
+/*
+ * Puts an icon into a container before icon number 'position'; -1 puts it at
+ * the end. 'page_size' is the number of icons on one page of a folder.
+ */
+static void put_item(plist_t container, int position, plist_t item, int page_size)
 {
     int count = home_collect(container, g_items, ITEMS_MAX);
 
@@ -114,7 +116,7 @@ static void put_item(plist_t container, int position, plist_t item)
     } else {
         plist_array_insert_item(g_items[position].list, item, g_items[position].index);
     }
-    folder_normalize(container);
+    folder_normalize(container, page_size);
 }
 
 /* Finds the page a folder is on, and the folder's position there. NULL when it is gone. */
@@ -193,6 +195,8 @@ static void images_create(HWND dialog, Arrange* a)
         DestroyIcon(icon);
     }
     ListView_SetImageList(GetDlgItem(dialog, IDC_A_LIST), a->images, LVSIL_NORMAL);
+    /* Room for the larger icons and two lines of name. */
+    ListView_SetIconSpacing(GetDlgItem(dialog, IDC_A_LIST), a->icon_size + 44, a->icon_size + 40);
 }
 
 /* --------------------------------------------------- filling the window */
@@ -333,49 +337,61 @@ static int selected_items(HWND dialog, int* selected)
 }
 
 /*
- * Moves the selected icons of the current container into 'target', before
- * its icon number 'position' (-1: at the end). 'target' may be the current
- * container itself: that changes the order.
+ * Moves icons from one container to another. 'selected' holds the numbers of
+ * the icons in 'source', ascending. They land in 'target' before its icon
+ * number 'position' (-1: at the end), in their old order. Source and target
+ * may be the same container: that changes the order.
+ * Returns FALSE when nothing can be moved.
  */
-static void move_selected(HWND dialog, Arrange* a, plist_t target, int position)
+static BOOL move_items(plist_t layout, plist_t source, int* selected, int count, plist_t target, int position)
 {
-    int selected[ITEMS_MAX];
-    plist_t taken[ITEMS_MAX];
-    int count = selected_items(dialog, selected);
-    int taken_count = 0, i;
-    BOOL into_folder = home_is_folder(target);
+    static plist_t taken[ITEMS_MAX];
+    int page_size = home_folder_page_size(layout);      /* before anything is taken apart */
+    int taken_count = 0, kept = 0, i;
 
-    if (count == 0 || !target) return;
+    if (count <= 0 || !source || !target) return FALSE;
 
-    /* Not onto itself, and no folders into folders. */
-    home_collect(a->current, g_items, ITEMS_MAX);
-    for (i = 0; i < count; i++)
-        if (g_items[selected[i]].node == target) return;
-    if (into_folder) {
-        int kept = 0;
-        for (i = 0; i < count; i++)
-            if (!home_is_folder(g_items[selected[i]].node)) selected[kept++] = selected[i];
-        count = kept;
-        if (count == 0) return;
+    /* Leave out what cannot go there: the target itself, and folders when the target is a folder. */
+    home_collect(source, g_items, ITEMS_MAX);
+    for (i = 0; i < count; i++) {
+        plist_t item = g_items[selected[i]].node;
+        if (item == target) continue;
+        if (home_is_folder(target) && home_is_folder(item)) continue;
+        selected[kept++] = selected[i];
     }
+    count = kept;
+    if (count == 0) return FALSE;
 
-    /* Within one container the icons before the target position move it forward. */
-    if (target == a->current && position >= 0)
-        for (i = count - 1; i >= 0; i--)
-            if (selected[i] < position) position--;
+    /* Within one container the icons taken from before the target position move it forward. */
+    if (target == source && position >= 0) {
+        int before = 0;
+        for (i = 0; i < count; i++)
+            if (selected[i] < position) before++;
+        position -= before;
+    }
 
     /* Take from the back, so that the numbers of the others stay valid. */
     for (i = count - 1; i >= 0; i--) {
-        plist_t item = take_item(a->current, selected[i]);
+        plist_t item = take_item(source, selected[i]);
         if (item) taken[taken_count++] = item;
     }
-    if (home_is_folder(a->current)) folder_normalize(a->current);
+    if (home_is_folder(source)) folder_normalize(source, page_size);
 
     /* 'taken' is in reverse order. */
     for (i = taken_count - 1; i >= 0; i--) {
-        put_item(target, position, taken[i]);
+        put_item(target, position, taken[i], page_size);
         if (position >= 0) position++;
     }
+    return taken_count > 0;
+}
+
+/* Moves the icons selected in the list into 'target' (see move_items). */
+static void move_selected(HWND dialog, Arrange* a, plist_t target, int position)
+{
+    int selected[ITEMS_MAX];
+    int count = selected_items(dialog, selected);
+
+    if (!move_items(a->layout, a->current, selected, count, target, position)) return;
     a->changed = TRUE;
     refresh(dialog, a);
 }
@@ -392,6 +408,11 @@ static BOOL drop_target(HWND dialog, Arrange* a, plist_t* target, int* position)
     GetWindowRect(tree, &area);
     if (PtInRect(&area, screen)) {
         TVHITTESTINFO hit;
+
+        /* Near the upper or lower edge: scroll, so that every page can be reached. */
+        if (screen.y < area.top + 16)    SendMessageW(tree, WM_VSCROLL, SB_LINEUP, 0);
+        if (screen.y > area.bottom - 16) SendMessageW(tree, WM_VSCROLL, SB_LINEDOWN, 0);
+
         point = screen;
         ScreenToClient(tree, &point);
         memset(&hit, 0, sizeof(hit));
@@ -466,6 +487,7 @@ static void new_folder(HWND dialog, Arrange* a)
     char name[TITLE_LEN * 3];
     plist_t folder;
     int count = selected_items(dialog, selected);
+    int page_size = home_folder_page_size(a->layout);
     int kept = 0, taken_count = 0, i;
 
     /* Folders stay where they are: a folder cannot hold another one. */
@@ -484,8 +506,8 @@ static void new_folder(HWND dialog, Arrange* a)
         plist_t item = take_item(a->current, selected[i]);
         if (item) taken[taken_count++] = item;
     }
-    for (i = taken_count - 1; i >= 0; i--) put_item(folder, -1, taken[i]);
-    put_item(a->current, selected[0], folder);
+    for (i = taken_count - 1; i >= 0; i--) put_item(folder, -1, taken[i], page_size);
+    put_item(a->current, selected[0], folder, page_size);
 
     a->current = folder;
     a->changed = TRUE;
@@ -508,7 +530,7 @@ static void ungroup_folder(HWND dialog, Arrange* a)
     count = home_collect(folder, g_items, ITEMS_MAX);
     for (i = 0; i < count; i++) taken[i] = plist_copy(g_items[i].node);
     plist_free(take_item(page, position));              /* the folder itself */
-    for (i = 0; i < count; i++) put_item(page, position + i, taken[i]);
+    for (i = 0; i < count; i++) put_item(page, position + i, taken[i], 0);     /* a page: no folder pages */
 
     a->current = page;
     a->changed = TRUE;
@@ -542,7 +564,8 @@ static void read_from_device(HWND dialog, Arrange* a)
 
     SetCursor(old_cursor);
     if (!layout) {
-        MessageBoxW(dialog, err[0] ? err : tr(S_ERR_HOME_FILE), tr(S_DLG_ARRANGE), MB_OK | MB_ICONWARNING);
+        if (err[0] == 0) format_wide(err, MSG_MAX, tr(S_ERR_HOME_READ), -1);
+        MessageBoxW(dialog, err, tr(S_DLG_ARRANGE), MB_OK | MB_ICONWARNING);
         return;
     }
     set_layout(dialog, a, layout, FALSE);
@@ -550,14 +573,20 @@ static void read_from_device(HWND dialog, Arrange* a)
 
 static void apply_to_device(HWND dialog, Arrange* a)
 {
+    WCHAR err[MSG_MAX] = L"";
     HCURSOR old_cursor;
     BOOL applied;
 
     if (MessageBoxW(dialog, tr(S_A_APPLY_QUESTION), tr(S_DLG_ARRANGE), MB_OKCANCEL | MB_ICONQUESTION) != IDOK) return;
     old_cursor = SetCursor(LoadCursor(NULL, IDC_WAIT));
-    applied = home_apply_layout(a->udid, a->layout);     /* reports a refusal itself */
+    applied = home_apply_layout(a->udid, a->layout, err, MSG_MAX);
     SetCursor(old_cursor);
-    if (!applied) return;
+    if (!applied) {
+        /* Our arrangement stays in the window, so that it can be saved or tried again. */
+        if (err[0] == 0) format_wide(err, MSG_MAX, tr(S_ERR_HOME_READ), -1);
+        MessageBoxW(dialog, err, tr(S_DLG_ARRANGE), MB_OK | MB_ICONWARNING);
+        return;
+    }
 
     /* Show what the device made of it: it may have placed some icons differently. */
     a->changed = FALSE;
@@ -766,7 +795,8 @@ static void on_command(HWND dialog, Arrange* a, int id)
         if (editing) TreeView_EndEditLabelNow(tree, FALSE);
         break;
     case IDCANCEL:
-        if (editing)                    TreeView_EndEditLabelNow(tree, TRUE);
+        if (a->dragging)                drag_end(dialog, a, FALSE);     /* Esc lets go of the icons */
+        else if (editing)               TreeView_EndEditLabelNow(tree, TRUE);
         else if (may_discard(dialog, a)) EndDialog(dialog, 0);
         break;
     }
@@ -825,7 +855,7 @@ static INT_PTR CALLBACK arrange_proc(HWND dialog, UINT message, WPARAM wparam, L
         break;
 
     case WM_COMMAND:
-        if (a) on_command(dialog, a, LOWORD(wparam));
+        if (a && HIWORD(wparam) == BN_CLICKED) on_command(dialog, a, LOWORD(wparam));
         return TRUE;
     }
     return FALSE;

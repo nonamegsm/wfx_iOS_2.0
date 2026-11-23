@@ -1,5 +1,20 @@
 # Changelog
 
+## 3.1
+
+Corrections to the home screen arrangement, found in a review of 3.0:
+
+- A crash when the arrangement window was closed (its icon list was freed twice).
+- "Applied" was shown even when the device silently ignored the new arrangement. The
+  plugin now reads the layout back until it has changed, and says so when it never does.
+- An error after `Apply to device` could be swallowed or appear behind the window; it is
+  now shown by the window itself, and the arrangement stays in it for another try.
+- Dragging a selection that contained the target folder onto that folder did nothing;
+  the other icons are moved now.
+- Folder pages were always rebuilt with 9 icons; the size used by the device is kept.
+- While dragging, the tree scrolls near its edges and Esc lets go of the icons instead
+  of closing the window. Icons in the list have enough room for their names.
+
 ## 3.0
 
 - `Arrange home screen`: a window for arranging the icons of the device from the PC.

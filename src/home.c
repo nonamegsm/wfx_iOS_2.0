@@ -33,7 +33,7 @@
 
 #define ITEMS_MAX           1024    /* items of one page or folder we can handle */
 #define NAME_MAX_UTF8       400
-#define FOLDER_PAGE_SIZE    9       /* icons on one page inside a folder */
+#define FOLDER_PAGE_SIZE    9       /* icons on one page inside a folder, at least */
 #define PENDING_MAX         16
 #define LAYOUT_FILE         "layout.plist"
 #define LAYOUT_SIZE_MAX     (16 * 1024 * 1024)
@@ -435,42 +435,91 @@ static void remove_empty(plist_t layout)
     }
 }
 
+/* TRUE when the layout last read from the device is, byte for byte, 'xml'. */
+static BOOL device_layout_is(const char* xml, uint32_t xml_len)
+{
+    return g_device_xml && xml && g_device_xml_len == xml_len && memcmp(g_device_xml, xml, xml_len) == 0;
+}
+
 /*
  * Sends g_layout to the device and reads back what the device made of it.
- * On failure the change is dropped and the user is told.
+ *
+ * The device does not answer a new layout, so "sent" does not mean "taken".
+ * We therefore read the layout again until it differs from the one before;
+ * when it never does, the device ignored us and that is reported as a failure.
+ * On failure the change is dropped and 'err' says why.
  */
-static BOOL layout_write(void)
+static BOOL layout_write(WCHAR* err, int err_len)
 {
-    WCHAR backup[MAX_PATH], message[MSG_MAX], err[MSG_MAX] = L"";
+    WCHAR backup[MAX_PATH], open_err[MSG_MAX] = L"";
     char udid[UDID_MAX];
     Device* device;
     sbservices_client_t client;
     plist_t to_send;
+    char* before = NULL;                /* the device's layout before the change */
+    uint32_t before_len = g_device_xml_len;
+    char* sent = NULL;
+    uint32_t sent_len = 0;
     sbservices_error_t e = SBSERVICES_E_UNKNOWN_ERROR;
+    BOOL taken = FALSE;
+    int attempt;
 
+    if (err && err_len > 0) err[0] = 0;
     copy_text(udid, UDID_MAX, g_layout_udid);
-    save_backup(backup, MAX_PATH);
 
     to_send = plist_copy(g_layout);
     remove_empty(to_send);
-    if (springboard_open(udid, &device, &client, err, MSG_MAX)) {
+    plist_to_xml(to_send, &sent, &sent_len);
+
+    /* Nothing differs from the device (e.g. only an empty folder was made): nothing to send. */
+    if (device_layout_is(sent, sent_len)) {
+        plist_mem_free(sent);
+        plist_free(to_send);
+        return TRUE;
+    }
+
+    if (g_device_xml) {
+        before = (char*)malloc(before_len ? before_len : 1);
+        if (before) memcpy(before, g_device_xml, before_len);
+    }
+    save_backup(backup, MAX_PATH);
+
+    if (springboard_open(udid, &device, &client, open_err, MSG_MAX)) {
         e = sbservices_set_icon_state(client, to_send);
         springboard_close(device, client);
     }
+    plist_mem_free(sent);
     plist_free(to_send);
     log_line("home: writing the layout -> %d", (int)e);
 
-    if (e == SBSERVICES_E_SUCCESS) Sleep(300);          /* SpringBoard rearranges its icons */
-    if (!layout_load(udid, NULL, 0)) {
-        plist_free(g_layout);                           /* unknown state: read again on next use */
-        g_layout = NULL;
+    /* SpringBoard needs a moment to rearrange its icons: look a few times. */
+    for (attempt = 0; attempt < 8; attempt++) {
+        if (e == SBSERVICES_E_SUCCESS) Sleep(400);
+        if (!layout_load(udid, NULL, 0)) {
+            plist_free(g_layout);                       /* unknown state: read again on next use */
+            g_layout = NULL;
+            break;
+        }
+        if (e != SBSERVICES_E_SUCCESS) break;
+        if (!before || !device_layout_is(before, before_len)) { taken = TRUE; break; }
     }
-    if (e != SBSERVICES_E_SUCCESS) {
-        format_wide(message, MSG_MAX, tr(S_ERR_HOME_WRITE), (int)e, backup);
-        show_error(message);
-        return FALSE;
+    free(before);
+    log_line("home: the device %s the layout", taken ? "took" : "did not take");
+
+    if (!taken && err && err_len > 0) {
+        if (e != SBSERVICES_E_SUCCESS) format_wide(err, err_len, tr(S_ERR_HOME_WRITE), (int)e, backup);
+        else                           copy_wide(err, err_len, tr(S_ERR_HOME_IGNORED));
     }
-    return TRUE;
+    return taken;
+}
+
+/* The same for changes made in the file panels: a failure is shown at once. */
+static BOOL layout_write_report(void)
+{
+    WCHAR err[MSG_MAX];
+    BOOL written = layout_write(err, MSG_MAX);
+    if (!written) show_error(err);
+    return written;
 }
 
 /* ---------------------------------------------------------------- listing */
@@ -550,6 +599,33 @@ BOOL home_item_bundle(const RemotePath* rp, char* bundle, int bundle_len)
 
 /* ----------------------------------------------------------------- moving */
 
+/*
+ * How many icons one page of a folder holds on this device. It differs
+ * between models, so we take the fullest folder page of the layout as the
+ * measure, and 9 (the smallest size in use) when there is none.
+ */
+int home_folder_page_size(plist_t layout)
+{
+    static ItemRef items[ITEMS_MAX];
+    int largest = FOLDER_PAGE_SIZE;
+    uint32_t p, k;
+    int count, i;
+
+    for (p = 0; p < plist_array_get_size(layout); p++) {
+        count = home_collect(plist_array_get_item(layout, p), items, ITEMS_MAX);
+        for (i = 0; i < count; i++) {
+            plist_t lists;
+            if (!home_is_folder(items[i].node)) continue;
+            lists = plist_dict_get_item(items[i].node, "iconLists");
+            for (k = 0; k < plist_array_get_size(lists); k++) {
+                int size = (int)plist_array_get_size(plist_array_get_item(lists, k));
+                if (size > largest) largest = size;
+            }
+        }
+    }
+    return largest;
+}
+
 /* Appends an item to a page, the dock or a folder. */
 static void container_append(plist_t container, plist_t item)
 {
@@ -564,7 +640,7 @@ static void container_append(plist_t container, plist_t item)
     lists = plist_dict_get_item(container, "iconLists");
     count = plist_array_get_size(lists);
     if (count > 0) last = plist_array_get_item(lists, count - 1);
-    if (!last || plist_get_node_type(last) != PLIST_ARRAY || plist_array_get_size(last) >= FOLDER_PAGE_SIZE) {
+    if (!last || plist_get_node_type(last) != PLIST_ARRAY || (int)plist_array_get_size(last) >= home_folder_page_size(g_layout)) {
         last = plist_new_array();
         plist_array_append_item(lists, last);
     }
@@ -589,7 +665,7 @@ static int rename_folder(ItemRef* folder, const char* parent, const char* new_na
     plist_dict_set_item(folder->node, "displayName", plist_new_string(new_name));
 
     if (home_collect(folder->node, items, ITEMS_MAX) == 0) return FS_FILE_OK;
-    return layout_write() ? FS_FILE_OK : FS_FILE_WRITEERROR;
+    return layout_write_report() ? FS_FILE_OK : FS_FILE_WRITEERROR;
 }
 
 /*
@@ -632,7 +708,7 @@ int home_move(const RemotePath* src, const RemotePath* dst)
             moved = plist_copy(item.node);
             plist_array_remove_item(item.list, item.index);
             container_append(target, moved);
-            result = layout_write() ? FS_FILE_OK : FS_FILE_WRITEERROR;
+            result = layout_write_report() ? FS_FILE_OK : FS_FILE_WRITEERROR;
         }
     }
     LeaveCriticalSection(&g_home_lock);
@@ -768,7 +844,7 @@ int home_upload_layout(const WCHAR* local_name, const RemotePath* rp)
         plist_free(g_layout);
         g_layout = layout;
         g_pending_count = 0;
-        result = layout_write() ? FS_FILE_OK : FS_FILE_WRITEERROR;
+        result = layout_write_report() ? FS_FILE_OK : FS_FILE_WRITEERROR;
     }
     LeaveCriticalSection(&g_home_lock);
     return result;
@@ -788,17 +864,18 @@ plist_t home_read_layout(const char* udid, WCHAR* err, int err_len)
     return layout;
 }
 
-/* Sends a layout to the device, after saving the present one. 'layout' stays the caller's. */
-BOOL home_apply_layout(const char* udid, plist_t layout)
+/* Sends a layout to the device, after saving the present one. 'layout' stays the caller's.
+   FALSE with a message in 'err' when the device refused or ignored it. */
+BOOL home_apply_layout(const char* udid, plist_t layout, WCHAR* err, int err_len)
 {
     BOOL applied = FALSE;
 
     EnterCriticalSection(&g_home_lock);
-    if (layout_load(udid, NULL, 0)) {                   /* the backup is the state of right now */
+    if (layout_load(udid, err, err_len)) {              /* the backup is the state of right now */
         plist_free(g_layout);
         g_layout = plist_copy(layout);
         g_pending_count = 0;
-        applied = layout_write();
+        applied = layout_write(err, err_len);
     }
     LeaveCriticalSection(&g_home_lock);
     return applied;

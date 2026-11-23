@@ -218,6 +218,11 @@ static const WCHAR* const g_text[S_COUNT][LANG_COUNT] = {
         L"Пристрій не прийняв нове розташування іконок (помилка %d).\nРозташування до зміни збережено у файлі:\n%s",
         L"Устройство не приняло новое расположение значков (ошибка %d).\nРасположение до изменения сохранено в файле:\n%s",
         L"Urządzenie nie przyjęło nowego układu ekranu początkowego (błąd %d).\nUkład sprzed zmiany zapisano w pliku:\n%s" },
+    [S_ERR_HOME_IGNORED] = {
+        L"The device received the new arrangement but did not take it over; nothing changed.\nUnlock the device and show its home screen, then try again. Some iOS versions do not accept an arrangement from a computer.",
+        L"Пристрій отримав нове розташування, але не застосував його; нічого не змінилося.\nРозблокуйте пристрій, відкрийте початковий екран і спробуйте ще раз. Деякі версії iOS не приймають розташування з комп\'ютера.",
+        L"Устройство получило новое расположение, но не применило его; ничего не изменилось.\nРазблокируйте устройство, откройте экран «Домой» и попробуйте ещё раз. Некоторые версии iOS не принимают расположение с компьютера.",
+        L"Urządzenie otrzymało nowy układ, ale go nie przejęło; nic się nie zmieniło.\nOdblokuj urządzenie, pokaż ekran początkowy i spróbuj ponownie. Niektóre wersje iOS nie przyjmują układu z komputera." },
     [S_ERR_HOME_FILE] = {
         L"This file is not a home screen layout.",
         L"Цей файл не є розташуванням іконок.",
