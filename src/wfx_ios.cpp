@@ -155,7 +155,9 @@ static void trace(const char* fmt, ...)
 
 // ---------------------------------------------------------------- paths
 
-enum Mode { M_INVALID, M_TOP, M_ROOT, M_USER, M_PHOTOS, M_PROCESSED, M_APPLIST, M_APP };
+enum Mode { M_INVALID, M_TOP, M_ROOT, M_USER, M_PHOTOS, M_PROCESSED, M_ICLOUD, M_APPLIST, M_APP };
+
+#define ICLOUD_DIR "/PhotoData/CPLAssets"
 
 struct RPath {
     Mode mode = M_INVALID;
@@ -181,6 +183,7 @@ static RPath parse_path(const WCHAR* remote)
     else if (first == L"User") r.mode = M_USER;
     else if (first == L"Photos") { r.mode = M_PHOTOS; prefix = "/DCIM"; }
     else if (first == L"Processed photos") { r.mode = M_PROCESSED; prefix = "/DCIM"; }
+    else if (first == L"iCloud photos") { r.mode = M_ICLOUD; prefix = ICLOUD_DIR; }
     else if (first == L"Applications") {
         if (rest.empty()) { r.mode = M_APPLIST; r.path = "/"; return r; }
         rest.erase(0, 1);
@@ -196,7 +199,7 @@ static RPath parse_path(const WCHAR* remote)
     return r;
 }
 
-static bool is_afc_mode(Mode m) { return m == M_ROOT || m == M_USER || m == M_PHOTOS || m == M_PROCESSED || m == M_APP; }
+static bool is_afc_mode(Mode m) { return m == M_ROOT || m == M_USER || m == M_PHOTOS || m == M_PROCESSED || m == M_ICLOUD || m == M_APP; }
 
 static std::string cache_key(const RPath& r)
 {
@@ -250,6 +253,8 @@ static DevicePtr get_device(bool fresh, std::wstring* err)
             WCHAR tmp[MAX_PATH] = L"";
             GetTempPathW(MAX_PATH, tmp);
             std::wstring log = std::wstring(tmp) + L"wfx_iOS.log";
+            std::string custom = ini_string("LogFile");
+            if (!custom.empty()) log = to_wide(custom, CP_ACP);
             if (_wfreopen(log.c_str(), L"w", stderr)) {
                 setvbuf(stderr, nullptr, _IONBF, 0);
                 idevice_set_debug_level(1);
@@ -400,6 +405,7 @@ static OpenResult open_afc_on(const DevicePtr& d, const RPath& rp, AfcPtr& out, 
                 out = a; return OPEN_OK;
             }
         }
+        trace("house_arrest %s: %s", rp.app.c_str(), lastError.c_str());
         if (err) *err = L"The application " + to_wide(rp.app) + L" does not share its files (" + to_wide(lastError) + L").";
         return OPEN_FAILED;
     }
@@ -579,9 +585,16 @@ static bool list_top(FindHandle* h)
     WIN32_FIND_DATAW fd;
     std::wstring ignored;
     if (device_has_afc2(&ignored)) { fill_virtual_dir(fd, L"Root"); h->items.push_back(fd); }
-    for (const WCHAR* n : { L"User", L"Photos", L"Processed photos", L"Applications" }) {
+    for (const WCHAR* n : { L"User", L"Photos", L"Processed photos" }) {
         fill_virtual_dir(fd, n); h->items.push_back(fd);
     }
+    // Photos that came from iCloud Photos are stored outside /DCIM; show them when present.
+    RPath user; user.mode = M_USER; user.path = "/";
+    St st;
+    afc_error_t e = with_afc(user, nullptr, [&](afc_client_t afc) { return afc_stat_raw(afc, ICLOUD_DIR, st); });
+    trace("iCloud photo store %s: %d", ICLOUD_DIR, (int)e);
+    if (e == AFC_E_SUCCESS && st.dir) { fill_virtual_dir(fd, L"iCloud photos"); h->items.push_back(fd); }
+    fill_virtual_dir(fd, L"Applications"); h->items.push_back(fd);
     return true;
 }
 
@@ -614,11 +627,12 @@ static bool list_apps(FindHandle* h, std::wstring* err)
             uint8_t sharing = 0;
             plist_t ps = plist_dict_get_item(app, "UIFileSharingEnabled");
             if (ps && plist_get_node_type(ps) == PLIST_BOOLEAN) plist_get_bool_val(ps, &sharing);
-            if (!all && !sharing) continue;
             plist_t pid = plist_dict_get_item(app, "CFBundleIdentifier");
             char* id = nullptr;
             if (pid) plist_get_string_val(pid, &id);
             if (!id) continue;
+            trace("app %s, file sharing %d", id, (int)sharing);
+            if (!all && !sharing) { plist_mem_free(id); continue; }
             WIN32_FIND_DATAW fd;
             fill_virtual_dir(fd, to_wide(id));
             h->items.push_back(fd);

@@ -39,6 +39,7 @@ offers to install the plugin. Then open *Network Neighborhood* -> *iOS*.
 | `User` | media partition |
 | `Photos` | `/DCIM` |
 | `Processed photos` | `/DCIM`, but downloads fetch the edited version of a photo when one exists |
+| `iCloud photos` | photos synced from iCloud Photos (`/PhotoData/CPLAssets`); shown only when the device has them |
 | `Applications` | documents of apps that enable file sharing, by bundle id |
 
 Alt+Enter on the plugin root shows device information and switches the preferred
@@ -52,6 +53,7 @@ Section `[wfx_iOS]` in Total Commander's `fsplugin.ini`:
 |---|---|
 | `PreferredDevice=<UDID>` | use only this device (empty = any connected device) |
 | `ShowAllApps=1` | list all user apps and try their full container first (developer-signed apps only) |
+| `LogFile=<path>` | write the trace to this file instead of `%TEMP%\wfx_iOS.log` |
 | `Debug=0` | turn off the protocol trace written to `%TEMP%\wfx_iOS.log` (on by default during the beta) |
 
 ## Changes from 1.3
