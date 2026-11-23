@@ -1270,10 +1270,10 @@ static void show_settings(HWND wnd)
 
 // ---------------------------------------------------------------- icons
 
-static HICON stock_icon(int siid, bool small)
+static HICON stock_icon(int siid, bool smallIcon)
 {
     SHSTOCKICONINFO sii; memset(&sii, 0, sizeof(sii)); sii.cbSize = sizeof(sii);
-    if (FAILED(SHGetStockIconInfo((SHSTOCKICONID)siid, SHGSI_ICON | (small ? SHGSI_SMALLICON : SHGSI_LARGEICON), &sii))) return nullptr;
+    if (FAILED(SHGetStockIconInfo((SHSTOCKICONID)siid, SHGSI_ICON | (smallIcon ? SHGSI_SMALLICON : SHGSI_LARGEICON), &sii))) return nullptr;
     return sii.hIcon;
 }
 
@@ -1551,7 +1551,7 @@ BOOL __stdcall FsSetTimeW(WCHAR* RemoteName, FILETIME*, FILETIME*, FILETIME* Las
 int __stdcall FsExtractCustomIconW(WCHAR* RemoteName, int ExtractFlags, HICON* TheIcon)
 {
     if (!RemoteName || !TheIcon) return FS_ICON_USEDEFAULT;
-    bool small = (ExtractFlags & FS_ICONFLAG_SMALL) != 0;
+    bool smallIcon = (ExtractFlags & FS_ICONFLAG_SMALL) != 0;
     RPath rp = parse_path(RemoteName);
     int siid = -1;
     switch (rp.mode) {
@@ -1567,7 +1567,7 @@ int __stdcall FsExtractCustomIconW(WCHAR* RemoteName, int ExtractFlags, HICON* T
             if (!icon_cached(rp.app) && !(ExtractFlags & FS_ICONFLAG_BACKGROUND)) return FS_ICON_DELAYED;
             std::vector<unsigned char> png;
             if (app_icon_png(rp.app, png)) {
-                HICON h = png_to_icon(png, GetSystemMetrics(small ? SM_CXSMICON : SM_CXICON));
+                HICON h = png_to_icon(png, GetSystemMetrics(smallIcon ? SM_CXSMICON : SM_CXICON));
                 if (h) {
                     *TheIcon = h;
                     _snwprintf(RemoteName, MAX_PATH - 1, L"wfx_iOS:app:%hs", rp.app.c_str());
@@ -1581,7 +1581,7 @@ int __stdcall FsExtractCustomIconW(WCHAR* RemoteName, int ExtractFlags, HICON* T
     default: break;
     }
     if (siid < 0) return FS_ICON_USEDEFAULT;
-    HICON h = stock_icon(siid, small);
+    HICON h = stock_icon(siid, smallIcon);
     if (!h) return FS_ICON_USEDEFAULT;
     *TheIcon = h;
     _snwprintf(RemoteName, MAX_PATH - 1, L"wfx_iOS:stock:%d", siid);
