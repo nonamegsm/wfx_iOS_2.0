@@ -42,7 +42,7 @@ static void describe_device(const char* udid, WCHAR* info, int info_len, WCHAR* 
         dev = NULL;
         if (!ini_get_bool("AllowWiFi", FALSE) ||
             idevice_new_with_options(&dev, udid, IDEVICE_LOOKUP_NETWORK) != IDEVICE_E_SUCCESS || !dev) {
-            copy_wide(info, info_len, L"Not connected.");
+            copy_wide(info, info_len, tr(S_NOT_CONNECTED));
             return;
         }
     }
@@ -60,7 +60,7 @@ static void describe_device(const char* udid, WCHAR* info, int info_len, WCHAR* 
     idevice_free(dev);
 
     if (name) copy_wide(name, name_len, device_name);
-    format_wide(info, info_len, L"Name:\t%s\r\nModel:\t%s\r\niOS:\t%s (%s)", device_name, model, version, build);
+    format_wide(info, info_len, tr(S_INFO_FORMAT), device_name, model, version, build);
 }
 
 /* AFC operation: reads total and free space of the media partition. */
@@ -74,7 +74,7 @@ static afc_error_t op_free_space(afc_client_t afc, void* arg)
     e = afc_get_device_info_key(afc, "FSTotalBytes", &total);
     if (e == AFC_E_SUCCESS) e = afc_get_device_info_key(afc, "FSFreeBytes", &free_bytes);
     if (e == AFC_E_SUCCESS && total && free_bytes) {
-        format_wide(line, 128, L"\r\nFree:\t%.1f GB of %.1f GB",
+        format_wide(line, 128, tr(S_FREE_FORMAT),
                     _strtoui64(free_bytes, NULL, 10) / 1073741824.0,
                     _strtoui64(total, NULL, 10) / 1073741824.0);
     }
@@ -146,7 +146,7 @@ static void settings_fill_devices(HWND dialog, SettingsState* state)
     SendMessageW(combo, CB_RESETCONTENT, 0, 0);
     state->count = 1;
     state->udids[0][0] = 0;
-    SendMessageW(combo, CB_ADDSTRING, 0, (LPARAM)L"<All connected devices>");
+    SendMessageW(combo, CB_ADDSTRING, 0, (LPARAM)tr(S_ALL_DEVICES));
 
     count = usbmuxd_get_device_list(&list);
     for (i = 0; i < count && state->count < MAX_DEVICES - 1; i++) {
@@ -176,7 +176,7 @@ static void settings_fill_devices(HWND dialog, SettingsState* state)
         if (selected == 0) {
             WCHAR udid[64], label[128];
             utf8_to_wide(preferred, udid, 64);
-            format_wide(label, 128, L"%s  (not connected)", udid);
+            format_wide(label, 128, tr(S_NOT_CONNECTED_SUFFIX), udid);
             selected = state->count;
             copy_text(state->udids[state->count++], 64, preferred);
             SendMessageW(combo, CB_ADDSTRING, 0, (LPARAM)label);
@@ -186,11 +186,49 @@ static void settings_fill_devices(HWND dialog, SettingsState* state)
     settings_show_info(dialog, state);
 }
 
+/* The languages of the "Language" combo box, in display order; "" = same as Windows. */
+static const char*  g_language_codes[] = { "", "en", "uk", "ru", "pl" };
+static const WCHAR* g_language_names[] = { NULL, L"English", L"Українська", L"Русский", L"Polski" };
+#define LANGUAGE_COUNT 5
+
+/* Puts the translated text on one control of a dialog. */
+static void set_text(HWND dialog, int control_id, StringId text)
+{
+    SetDlgItemTextW(dialog, control_id, tr(text));
+}
+
 /* Reads the options from the ini file into the dialog. */
 static void settings_load(HWND dialog)
 {
     WCHAR about[160];
+    char language[16];
+    HWND languages = GetDlgItem(dialog, IDC_LANGUAGE);
     HICON icon = LoadIconW(g_inst, MAKEINTRESOURCEW(IDI_PLUGIN));
+    int i, selected = 0;
+
+    /* Texts in the current language. */
+    SetWindowTextW(dialog, tr(S_DLG_SETTINGS));
+    set_text(dialog, IDC_GRP_DEVICE, S_GRP_DEVICE);
+    set_text(dialog, IDC_LBL_USE, S_LBL_USE);
+    set_text(dialog, IDC_REFRESH, S_BTN_REFRESH);
+    set_text(dialog, IDC_GRP_OPTIONS, S_GRP_OPTIONS);
+    set_text(dialog, IDC_APPNAMES, S_CHK_APPNAMES);
+    set_text(dialog, IDC_ALLAPPS, S_CHK_ALLAPPS);
+    set_text(dialog, IDC_WIFI, S_CHK_WIFI);
+    set_text(dialog, IDC_LOG, S_CHK_LOG);
+    set_text(dialog, IDC_DEBUG, S_CHK_DEBUG);
+    set_text(dialog, IDC_LBL_LANG, S_LBL_LANGUAGE);
+    set_text(dialog, IDC_OPENLOG, S_BTN_OPENLOG);
+    set_text(dialog, IDOK, S_BTN_OK);
+    set_text(dialog, IDCANCEL, S_BTN_CANCEL);
+
+    /* Language choice. */
+    ini_get_text("Language", language, sizeof(language));
+    for (i = 0; i < LANGUAGE_COUNT; i++) {
+        SendMessageW(languages, CB_ADDSTRING, 0, (LPARAM)(i == 0 ? tr(S_LANG_AUTO) : g_language_names[i]));
+        if (_stricmp(language, g_language_codes[i]) == 0) selected = i;
+    }
+    SendMessageW(languages, CB_SETCURSEL, selected, 0);
 
     SendMessageW(dialog, WM_SETICON, ICON_SMALL, (LPARAM)icon);
     SendMessageW(dialog, WM_SETICON, ICON_BIG, (LPARAM)icon);
@@ -203,7 +241,7 @@ static void settings_load(HWND dialog)
     EnableWindow(GetDlgItem(dialog, IDC_DEBUG), is_checked(dialog, IDC_LOG));
     EnableWindow(GetDlgItem(dialog, IDC_OPENLOG), g_log_path[0] != 0);
 
-    format_wide(about, 160, L"wfx_iOS %hs \x2013 update of wfx_iOS 1.3 by Domo, the original author", WFX_VERSION_STR);
+    format_wide(about, 160, tr(S_ABOUT), WFX_VERSION_STR);
     SetDlgItemTextW(dialog, IDC_ABOUT, about);
 }
 
@@ -213,9 +251,12 @@ static void settings_save(HWND dialog, SettingsState* state)
     int selected = (int)SendDlgItemMessageW(dialog, IDC_DEVICE, CB_GETCURSEL, 0, 0);
     const char* udid = (selected > 0 && selected < state->count) ? state->udids[selected] : "";
     char old_udid[64];
+    char old_language[16];
+    int language = (int)SendDlgItemMessageW(dialog, IDC_LANGUAGE, CB_GETCURSEL, 0, 0);
     BOOL log_before = ini_get_bool("Log", TRUE);
     BOOL log = is_checked(dialog, IDC_LOG);
     BOOL debug = log && is_checked(dialog, IDC_DEBUG);
+    BOOL language_changed;
 
     ini_get_text("PreferredDevice", old_udid, sizeof(old_udid));
     ini_set_text("PreferredDevice", udid[0] ? udid : NULL);
@@ -225,6 +266,12 @@ static void settings_save(HWND dialog, SettingsState* state)
     ini_set_text("Log", log ? "1" : "0");
     ini_set_text("Debug", debug ? "1" : "0");
 
+    if (language < 0 || language >= LANGUAGE_COUNT) language = 0;
+    ini_get_text("Language", old_language, sizeof(old_language));
+    language_changed = _stricmp(old_language, g_language_codes[language]) != 0;
+    ini_set_text("Language", language == 0 ? NULL : g_language_codes[language]);
+    lang_load();                        /* new messages use the new language at once */
+
     /* The trace level can change while running; opening or closing the log cannot. */
     if (g_log_path[0]) {
         idevice_set_debug_level(debug ? 1 : 0);
@@ -233,9 +280,8 @@ static void settings_save(HWND dialog, SettingsState* state)
     if (strcmp(udid, old_udid) != 0) device_forget();
     apps_table_clear(NULL);             /* names / "all applications" may have changed */
 
-    if (log != log_before)
-        MessageBoxW(dialog, L"The log file setting takes effect after Total Commander is restarted.",
-                    PLUGIN_TITLE, MB_OK | MB_ICONINFORMATION);
+    if (log != log_before || language_changed)
+        MessageBoxW(dialog, tr(S_RESTART_NEEDED), PLUGIN_TITLE, MB_OK | MB_ICONINFORMATION);
 }
 
 static INT_PTR CALLBACK settings_proc(HWND dialog, UINT message, WPARAM wparam, LPARAM lparam)
@@ -326,12 +372,12 @@ static afc_error_t op_properties(afc_client_t afc, void* arg)
 /* "File", "Directory", "Symbolic link", ... */
 static const WCHAR* type_name(const FileStat* st)
 {
-    if (st->is_link) return L"Symbolic link";
-    if (st->is_dir) return L"Directory";
-    if (strcmp(st->ifmt, "S_IFBLK") == 0) return L"Block device";
+    if (st->is_link) return tr(S_TYPE_LINK);
+    if (st->is_dir) return tr(S_TYPE_DIR);
+    if (strcmp(st->ifmt, "S_IFBLK") == 0) return tr(S_TYPE_BLOCK);
     if (strcmp(st->ifmt, "S_IFCHR") == 0 || strcmp(st->ifmt, "S_IFIFO") == 0 ||
-        strcmp(st->ifmt, "S_IFSOCK") == 0) return L"Device";
-    return L"File";
+        strcmp(st->ifmt, "S_IFSOCK") == 0) return tr(S_TYPE_DEVICE);
+    return tr(S_TYPE_FILE);
 }
 
 /* Everything the properties dialog shows, prepared as text. */
@@ -355,8 +401,18 @@ static INT_PTR CALLBACK properties_proc(HWND dialog, UINT message, WPARAM wparam
         WCHAR title[TC_PATH_MAX + 32];
 
         SendMessageW(dialog, WM_SETICON, ICON_SMALL, (LPARAM)icon);
-        format_wide(title, TC_PATH_MAX + 32, L"Properties of %s", text->name);
+        format_wide(title, TC_PATH_MAX + 32, tr(S_PROP_TITLE), text->name);
         SetWindowTextW(dialog, title);
+        set_text(dialog, IDC_PL_NAME, S_PROP_NAME);
+        set_text(dialog, IDC_PL_PATH, S_PROP_PATH);
+        set_text(dialog, IDC_PL_TYPE, S_PROP_TYPE);
+        set_text(dialog, IDC_PL_SIZE, S_PROP_SIZE);
+        set_text(dialog, IDC_PL_CREATED, S_PROP_CREATED);
+        set_text(dialog, IDC_PL_MODIFIED, S_PROP_MODIFIED);
+        set_text(dialog, IDC_PL_LINKS, S_PROP_LINKS);
+        set_text(dialog, IDC_PL_BLOCKS, S_PROP_BLOCKS);
+        set_text(dialog, IDC_PL_TARGET, S_PROP_TARGET);
+        set_text(dialog, IDOK, S_BTN_OK);
         SetDlgItemTextW(dialog, IDC_P_NAME, text->name);
         SetDlgItemTextW(dialog, IDC_P_PATH, text->path);
         SetDlgItemTextW(dialog, IDC_P_TYPE, text->type);
@@ -388,7 +444,7 @@ void show_file_properties(HWND parent, const WCHAR* remote_name, const RemotePat
     if (!args || !text) { free(args); free(text); return; }
     args->path = rp->path;
     if (afc_run(rp, op_properties, args, err, MSG_MAX) != AFC_E_SUCCESS) {
-        show_error(err[0] ? err : L"Could not read file information.");
+        show_error(err[0] ? err : tr(S_ERR_FILE_INFO));
         free(args);
         free(text);
         return;
@@ -402,12 +458,12 @@ void show_file_properties(HWND parent, const WCHAR* remote_name, const RemotePat
     copy_wide(text->type, 64, type_name(st));
 
     if (st->is_dir) {
-        if (args->counted) format_wide(text->size, 128, L"%d entries", args->entries);
+        if (args->counted) format_wide(text->size, 128, tr(S_ENTRIES), args->entries);
         else               copy_wide(text->size, 128, L"-");
     } else {
         WCHAR rounded[64];
         StrFormatByteSizeW((LONGLONG)st->size, rounded, 64);
-        format_wide(text->size, 128, L"%s (%I64u bytes)", rounded, st->size);
+        format_wide(text->size, 128, tr(S_SIZE_FORMAT), rounded, st->size);
     }
     format_time(st->birth, text->created, 80);
     format_time(st->mtime, text->modified, 80);

@@ -92,6 +92,8 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
+      - name: Check translations
+        run: python3 tools/check_lang.py
       - name: Assemble plugin zip
         run: |
           VER=$(head -n1 version.txt | tr -d '[:space:]')

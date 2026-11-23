@@ -10,6 +10,7 @@
  * Shared declarations. The plugin is plain C, split into these modules:
  *
  *   util.c      strings, time conversion, ini file, log file, error box
+ *   lang.c      all user-visible texts (English, Ukrainian, Russian, Polish)
  *   device.c    device handle, lockdown, service start, AFC connections
  *   paths.c     Total Commander path -> device path, application names
  *   listing.c   directory listings (FsFindFirst / FsFindNext)
@@ -115,6 +116,80 @@ void     show_error(const WCHAR* message);                  /* one box per probl
 
 void     path_parent(const char* path, char* dst, int dst_len);
 void     path_join(const char* dir, const char* name, char* dst, int dst_len);
+
+/* ----------------------------------------------------------------- lang.c */
+
+/* Identifiers of the texts shown to the user; the texts themselves are in lang.c. */
+typedef enum {
+    S_ERR_NO_SERVICE,
+    S_ERR_NO_DEVICE,
+    S_ERR_DEVICE_NOT_CONNECTED,
+    S_ERR_OPEN_DEVICE,
+    S_ERR_DEVICES_REPORTED,
+    S_ERR_PASSCODE,
+    S_ERR_TRUST_PENDING,
+    S_ERR_TRUST_DENIED,
+    S_ERR_NOT_PAIRED,
+    S_ERR_LOCKDOWN,
+    S_ERR_START_SERVICE,
+    S_ERR_HOUSE_ARREST,
+    S_ERR_APP_NOT_SHARED,
+    S_ERR_AFC,
+    S_ERR_INSTPROXY,
+    S_ERR_APP_LIST,
+    S_ERR_READ_DIR,
+    S_ERR_FILE_INFO,
+    S_UNINSTALL_QUESTION,
+    S_UNINSTALL_TITLE,
+    S_ERR_UNINSTALL,
+    S_ERR_INSTALL,
+    S_ERR_PHOTO_DB_MISSING,
+    S_ERR_PHOTO_DB_READ,
+    S_ERR_PHOTO_DB_LAYOUT,
+    S_DLG_SETTINGS,
+    S_GRP_DEVICE,
+    S_LBL_USE,
+    S_BTN_REFRESH,
+    S_GRP_OPTIONS,
+    S_CHK_APPNAMES,
+    S_CHK_ALLAPPS,
+    S_CHK_WIFI,
+    S_CHK_LOG,
+    S_CHK_DEBUG,
+    S_LBL_LANGUAGE,
+    S_LANG_AUTO,
+    S_BTN_OPENLOG,
+    S_BTN_OK,
+    S_BTN_CANCEL,
+    S_ALL_DEVICES,
+    S_NOT_CONNECTED,
+    S_NOT_CONNECTED_SUFFIX,
+    S_INFO_FORMAT,
+    S_FREE_FORMAT,
+    S_ABOUT,
+    S_RESTART_NEEDED,
+    S_PROP_TITLE,
+    S_PROP_NAME,
+    S_PROP_PATH,
+    S_PROP_TYPE,
+    S_PROP_SIZE,
+    S_PROP_CREATED,
+    S_PROP_MODIFIED,
+    S_PROP_LINKS,
+    S_PROP_BLOCKS,
+    S_PROP_TARGET,
+    S_ENTRIES,
+    S_SIZE_FORMAT,
+    S_TYPE_FILE,
+    S_TYPE_DIR,
+    S_TYPE_LINK,
+    S_TYPE_BLOCK,
+    S_TYPE_DEVICE,
+    S_COUNT
+} StringId;
+
+void         lang_load(void);                               /* picks the language (setting or Windows) */
+const WCHAR* tr(StringId id);                               /* the text in the current language */
 
 /* ---------------------------------------------------------------- paths.c */
 

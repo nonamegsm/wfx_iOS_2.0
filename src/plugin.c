@@ -51,6 +51,7 @@ void __stdcall FsGetDefRootName(char* name, int max_len)
 void __stdcall FsSetDefaultParams(FsDefaultParamStruct* params)
 {
     if (params && params->DefaultIniName[0]) copy_text(g_ini, sizeof(g_ini), params->DefaultIniName);
+    lang_load();                                    /* the Language setting is in that ini file */
 }
 
 /* Downloads and uploads may run in a background thread. */

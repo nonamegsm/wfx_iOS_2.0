@@ -240,7 +240,7 @@ static plist_t browse_applications(Device* device, WCHAR* err, int err_len)
     e = instproxy_client_new(device->dev, service, &proxy);
     lockdownd_service_descriptor_free(service);
     if (e != INSTPROXY_E_SUCCESS || !proxy) {
-        if (err) copy_wide(err, err_len, L"Could not connect to installation_proxy.");
+        if (err) copy_wide(err, err_len, tr(S_ERR_INSTPROXY));
         return NULL;
     }
 
@@ -253,7 +253,7 @@ static plist_t browse_applications(Device* device, WCHAR* err, int err_len)
     instproxy_client_free(proxy);
 
     if (e != INSTPROXY_E_SUCCESS || !apps) {
-        if (err) copy_wide(err, err_len, L"Could not read the list of applications.");
+        if (err) copy_wide(err, err_len, tr(S_ERR_APP_LIST));
         return NULL;
     }
     return apps;
@@ -424,7 +424,7 @@ static BOOL list_folder(const RemotePath* rp, FindList* list, WCHAR* err, int er
 
     log_line("AFC error %d for %s", (int)e, rp->path);
     if (err && err[0] == 0 && e != AFC_E_OBJECT_NOT_FOUND && e != AFC_E_PERM_DENIED && e != AFC_E_READ_ERROR)
-        format_wide(err, err_len, L"Could not read the directory (AFC error %d).", (int)e);
+        format_wide(err, err_len, tr(S_ERR_READ_DIR), (int)e);
     return FALSE;
 }
 

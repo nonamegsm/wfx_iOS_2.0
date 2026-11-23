@@ -31,6 +31,7 @@ Settings (section [wfx_iOS] in Total Commander's fsplugin.ini)
   ShowAllApps=1            list all user apps and try their full container first
                            (only works for developer-signed apps)
   AppNames=0               list applications by bundle id instead of by name
+  Language=en|uk|ru|pl     language (default: same as Windows)
   LogFile=<path>           trace file (default %TEMP%\wfx_iOS.log)
   Log=0                    turn the short plugin log off
   Debug=1                  add the full protocol trace (large, slow)

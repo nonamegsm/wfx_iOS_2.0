@@ -12,28 +12,31 @@ LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
 
 IDI_PLUGIN ICON "../res/wfx_ios.ico"
 
-IDD_SETTINGS DIALOGEX 0, 0, 280, 232
+/* The texts here are the English defaults; dialogs.c replaces them with the current language. */
+IDD_SETTINGS DIALOGEX 0, 0, 280, 250
 STYLE DS_SETFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "iOS plugin settings"
 FONT 9, "Segoe UI", 400, 0, 0x1
 BEGIN
-    GROUPBOX        "Device", -1, 7, 7, 266, 92
-    LTEXT           "&Use:", -1, 15, 23, 20, 8
-    COMBOBOX        IDC_DEVICE, 38, 21, 174, 120, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    PUSHBUTTON      "&Refresh", IDC_REFRESH, 217, 20, 48, 14
+    GROUPBOX        "Device", IDC_GRP_DEVICE, 7, 7, 266, 92
+    LTEXT           "&Use:", IDC_LBL_USE, 15, 23, 34, 8
+    COMBOBOX        IDC_DEVICE, 52, 21, 156, 120, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    PUSHBUTTON      "&Refresh", IDC_REFRESH, 213, 20, 52, 14
     LTEXT           "", IDC_INFO, 15, 41, 250, 52
 
-    GROUPBOX        "Options", -1, 7, 103, 266, 84
+    GROUPBOX        "Options", IDC_GRP_OPTIONS, 7, 103, 266, 102
     AUTOCHECKBOX    "Show applications by &name instead of bundle id", IDC_APPNAMES, 15, 117, 250, 10
     AUTOCHECKBOX    "List &all applications (most will not open)", IDC_ALLAPPS, 15, 130, 250, 10
     AUTOCHECKBOX    "Use devices over &Wi-Fi when none is on USB (can be slow)", IDC_WIFI, 15, 143, 250, 10
     AUTOCHECKBOX    "Write a &log file", IDC_LOG, 15, 156, 250, 10
     AUTOCHECKBOX    "Include the full protocol &trace in the log (large, slow)", IDC_DEBUG, 15, 169, 250, 10
+    LTEXT           "Lan&guage:", IDC_LBL_LANG, 15, 187, 44, 8
+    COMBOBOX        IDC_LANGUAGE, 62, 185, 110, 100, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
 
-    LTEXT           "", IDC_ABOUT, 7, 193, 266, 8
-    PUSHBUTTON      "Open lo&g", IDC_OPENLOG, 7, 211, 50, 14
-    DEFPUSHBUTTON   "OK", IDOK, 169, 211, 50, 14
-    PUSHBUTTON      "Cancel", IDCANCEL, 223, 211, 50, 14
+    LTEXT           "", IDC_ABOUT, 7, 211, 266, 8
+    PUSHBUTTON      "Open lo&g", IDC_OPENLOG, 7, 229, 70, 14
+    DEFPUSHBUTTON   "OK", IDOK, 163, 229, 52, 14
+    PUSHBUTTON      "Cancel", IDCANCEL, 221, 229, 52, 14
 END
 
 /* File properties: read-only fields, so that values can be selected and copied. */
@@ -42,24 +45,24 @@ STYLE DS_SETFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMEN
 CAPTION "Properties"
 FONT 9, "Segoe UI", 400, 0, 0x1
 BEGIN
-    LTEXT           "Name:", -1, 9, 9, 46, 8
-    EDITTEXT        IDC_P_NAME, 58, 9, 205, 10, ES_AUTOHSCROLL | ES_READONLY | NOT WS_BORDER
-    LTEXT           "On device:", -1, 9, 23, 46, 8
-    EDITTEXT        IDC_P_PATH, 58, 23, 205, 10, ES_AUTOHSCROLL | ES_READONLY | NOT WS_BORDER
-    LTEXT           "Type:", -1, 9, 37, 46, 8
-    EDITTEXT        IDC_P_TYPE, 58, 37, 205, 10, ES_AUTOHSCROLL | ES_READONLY | NOT WS_BORDER
-    LTEXT           "Size:", -1, 9, 51, 46, 8
-    EDITTEXT        IDC_P_SIZE, 58, 51, 205, 10, ES_AUTOHSCROLL | ES_READONLY | NOT WS_BORDER
-    LTEXT           "Created:", -1, 9, 65, 46, 8
-    EDITTEXT        IDC_P_CREATED, 58, 65, 205, 10, ES_AUTOHSCROLL | ES_READONLY | NOT WS_BORDER
-    LTEXT           "Modified:", -1, 9, 79, 46, 8
-    EDITTEXT        IDC_P_MODIFIED, 58, 79, 205, 10, ES_AUTOHSCROLL | ES_READONLY | NOT WS_BORDER
-    LTEXT           "Hard links:", -1, 9, 93, 46, 8
-    EDITTEXT        IDC_P_LINKS, 58, 93, 205, 10, ES_AUTOHSCROLL | ES_READONLY | NOT WS_BORDER
-    LTEXT           "Blocks:", -1, 9, 107, 46, 8
-    EDITTEXT        IDC_P_BLOCKS, 58, 107, 205, 10, ES_AUTOHSCROLL | ES_READONLY | NOT WS_BORDER
-    LTEXT           "Link target:", -1, 9, 121, 46, 8
-    EDITTEXT        IDC_P_TARGET, 58, 121, 205, 10, ES_AUTOHSCROLL | ES_READONLY | NOT WS_BORDER
+    LTEXT           "Name:", IDC_PL_NAME, 9, 9, 62, 8
+    EDITTEXT        IDC_P_NAME, 74, 9, 189, 10, ES_AUTOHSCROLL | ES_READONLY | NOT WS_BORDER
+    LTEXT           "On device:", IDC_PL_PATH, 9, 23, 62, 8
+    EDITTEXT        IDC_P_PATH, 74, 23, 189, 10, ES_AUTOHSCROLL | ES_READONLY | NOT WS_BORDER
+    LTEXT           "Type:", IDC_PL_TYPE, 9, 37, 62, 8
+    EDITTEXT        IDC_P_TYPE, 74, 37, 189, 10, ES_AUTOHSCROLL | ES_READONLY | NOT WS_BORDER
+    LTEXT           "Size:", IDC_PL_SIZE, 9, 51, 62, 8
+    EDITTEXT        IDC_P_SIZE, 74, 51, 189, 10, ES_AUTOHSCROLL | ES_READONLY | NOT WS_BORDER
+    LTEXT           "Created:", IDC_PL_CREATED, 9, 65, 62, 8
+    EDITTEXT        IDC_P_CREATED, 74, 65, 189, 10, ES_AUTOHSCROLL | ES_READONLY | NOT WS_BORDER
+    LTEXT           "Modified:", IDC_PL_MODIFIED, 9, 79, 62, 8
+    EDITTEXT        IDC_P_MODIFIED, 74, 79, 189, 10, ES_AUTOHSCROLL | ES_READONLY | NOT WS_BORDER
+    LTEXT           "Hard links:", IDC_PL_LINKS, 9, 93, 62, 8
+    EDITTEXT        IDC_P_LINKS, 74, 93, 189, 10, ES_AUTOHSCROLL | ES_READONLY | NOT WS_BORDER
+    LTEXT           "Blocks:", IDC_PL_BLOCKS, 9, 107, 62, 8
+    EDITTEXT        IDC_P_BLOCKS, 74, 107, 189, 10, ES_AUTOHSCROLL | ES_READONLY | NOT WS_BORDER
+    LTEXT           "Link target:", IDC_PL_TARGET, 9, 121, 62, 8
+    EDITTEXT        IDC_P_TARGET, 74, 121, 189, 10, ES_AUTOHSCROLL | ES_READONLY | NOT WS_BORDER
     DEFPUSHBUTTON   "OK", IDOK, 215, 141, 50, 14
 END
 

@@ -51,7 +51,7 @@ static instproxy_client_t proxy_connect(const char* udid, WCHAR* err, int err_le
     if (start_service(device, INSTPROXY_SERVICE_NAME, &service, err, err_len)) {
         if (instproxy_client_new(device->dev, service, &proxy) != INSTPROXY_E_SUCCESS) {
             proxy = NULL;
-            if (err) copy_wide(err, err_len, L"Could not connect to installation_proxy.");
+            if (err) copy_wide(err, err_len, tr(S_ERR_INSTPROXY));
         }
         lockdownd_service_descriptor_free(service);
     }
@@ -71,7 +71,7 @@ static BOOL uninstall_application(const char* udid, const char* bundle, WCHAR* e
     log_line("uninstall %s: %d", bundle, (int)e);
 
     if (e != INSTPROXY_E_SUCCESS) {
-        if (err) format_wide(err, err_len, L"The device refused to remove the application (error %d).", (int)e);
+        if (err) format_wide(err, err_len, tr(S_ERR_UNINSTALL), (int)e);
         return FALSE;
     }
     afc_cache_clear();              /* a connection into the removed application is useless now */
@@ -136,18 +136,14 @@ AppGate apps_delete_gate(const WCHAR* tc_path, const RemotePath* rp)
 
     shown_app_name(tc_path, name, APP_ID_MAX);
     utf8_to_wide(rp->app, id, APP_ID_MAX);
-    format_wide(question, MSG_MAX,
-                L"Uninstall \"%s\" from the device?\n\n"
-                L"%s\n\n"
-                L"This removes the application and ALL its documents and data. It cannot be undone.",
-                name, id);
+    format_wide(question, MSG_MAX, tr(S_UNINSTALL_QUESTION), name, id);
 
     decision = &g_decisions[g_decisions_count++];
     copy_text(decision->udid, UDID_MAX, rp->udid);
     copy_text(decision->bundle, APP_ID_MAX, rp->app);
     decision->answer = ANSWER_NO;
 
-    if (MessageBoxW(GetActiveWindow(), question, L"Uninstall application",
+    if (MessageBoxW(GetActiveWindow(), question, tr(S_UNINSTALL_TITLE),
                     MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) != IDYES)
         return GATE_REFUSED;
 
@@ -223,9 +219,7 @@ int apps_install(const WCHAR* local_name, const WCHAR* remote_name, const Remote
     afc_run(&staging, op_remove, staging.path, NULL, 0);
 
     if (e != INSTPROXY_E_SUCCESS) {
-        format_wide(err, MSG_MAX,
-                    L"The device did not install the package (error %d).\n"
-                    L"The package must be signed for this device.", (int)e);
+        format_wide(err, MSG_MAX, tr(S_ERR_INSTALL), (int)e);
         show_error(err);
         return FS_FILE_WRITEERROR;
     }

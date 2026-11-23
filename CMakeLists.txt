@@ -27,6 +27,7 @@ add_library(wfx_iOS SHARED
     src/columns.c
     src/dialogs.c
     src/util.c
+    src/lang.c
     src/wfx_ios.h
     src/fsplugin.h
     src/resource.h
@@ -40,7 +41,8 @@ target_compile_definitions(wfx_iOS PRIVATE
     WFX_VERSION_MINOR=${WFX_VERSION_MINOR})
 
 if(MSVC)
-    target_compile_options(wfx_iOS PRIVATE /W3)
+    # /utf-8: the sources are UTF-8 (lang.c holds the translated texts)
+    target_compile_options(wfx_iOS PRIVATE /W3 /utf-8)
 endif()
 
 target_link_libraries(wfx_iOS PRIVATE

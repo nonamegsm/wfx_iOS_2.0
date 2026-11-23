@@ -97,6 +97,14 @@ be copied and deleted like any other file; new files cannot be put there.
 
 Deleting files or folders *inside* an application works as before and does not uninstall it.
 
+## Languages
+
+Dialogs and messages are available in English, Ukrainian, Russian and Polish. The plugin
+follows the Windows display language; the settings dialog can override it. Folder names
+(`User`, `Photos`, ...) stay in English, because they are part of the paths Total Commander
+remembers. All texts are in `src/lang.c`; `tools/check_lang.py` checks that a translation
+uses the same placeholders as the English text.
+
 ## Custom columns
 
 The plugin offers extra file details to Total Commander: `Created`, `Type`, `Hard links`,
@@ -112,6 +120,7 @@ Use the settings dialog, or edit section `[wfx_iOS]` in Total Commander's `fsplu
 | `PreferredDevice=<UDID>` | use only this device (empty = all connected devices) |
 | `ShowAllApps=1` | list all user apps and try their full container first (developer-signed apps only) |
 | `AppNames=0` | list applications by bundle id instead of by name |
+| `Language=en`/`uk`/`ru`/`pl` | language of dialogs and messages (default: same as Windows) |
 | `LogFile=<path>` | write the trace to this file instead of `%TEMP%\wfx_iOS.log` |
 | `Log=0` | turn off the short plugin log written to `%TEMP%\wfx_iOS.log` |
 | `Debug=1` | add the full protocol trace to the log (large and slow; only for bug reports) |
@@ -175,6 +184,7 @@ The plugin is plain C (C99 style), one module per job:
 | `src/columns.c` | extra file details for custom columns |
 | `src/dialogs.c` | settings dialog, file properties |
 | `src/util.c` | strings, time, ini file, log file, error box |
+| `src/lang.c` | all user-visible texts in four languages |
 | `src/wfx_ios.h` | shared declarations and an overview |
 
 ## Status

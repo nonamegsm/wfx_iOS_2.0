@@ -320,7 +320,7 @@ static BOOL load_index(const char* udid, BOOL check_for_changes, WCHAR* err, int
         device_path[sizeof(device_path) - 1] = 0;
         if (stat_on_device(udid, device_path, &st)) stamp += st.size * 31 + st.mtime;
         else if (i == 0) {
-            if (err) copy_wide(err, err_len, L"The photo database could not be found on the device.");
+            if (err) copy_wide(err, err_len, tr(S_ERR_PHOTO_DB_MISSING));
             return FALSE;
         }
     }
@@ -337,7 +337,7 @@ static BOOL load_index(const char* udid, BOOL check_for_changes, WCHAR* err, int
         if (!fetch_file(udid, device_path, local[i])) {
             DeleteFileW(local[i]);              /* the journal files are optional */
             if (i == 0) {
-                if (err) copy_wide(err, err_len, L"The photo database could not be read from the device.");
+                if (err) copy_wide(err, err_len, tr(S_ERR_PHOTO_DB_READ));
                 RemoveDirectoryW(folder);
                 return FALSE;
             }
@@ -360,8 +360,7 @@ static BOOL load_index(const char* udid, BOOL check_for_changes, WCHAR* err, int
     if (rows < 0) {
         g_items_count = 0;
         g_items_loaded = FALSE;
-        if (err) copy_wide(err, err_len, L"The photo database of this iOS version has a layout the plugin does not know.\n"
-                                         L"Please report the iOS version; the log has the details.");
+        if (err) copy_wide(err, err_len, tr(S_ERR_PHOTO_DB_LAYOUT));
         return FALSE;
     }
 

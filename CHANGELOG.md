@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.7
+
+- Translations: Ukrainian, Russian and Polish, next to English. The language follows
+  Windows and can be chosen in the settings dialog.
+
 ## 2.6
 
 - Install an application by copying an `.ipa` file into `Applications`.

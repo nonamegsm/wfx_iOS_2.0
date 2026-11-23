@@ -74,23 +74,18 @@ static void describe_missing_device(const char* wanted, idevice_error_t error, W
     int i;
 
     if (count < 0) {
-        format_wide(err, err_len,
-            L"Cannot reach the Apple Mobile Device Service (usbmuxd, 127.0.0.1:27015), error %d.\n"
-            L"Install Apple Mobile Device Support and make sure the \"Apple Mobile Device Service\" is running.",
-            count);
+        format_wide(err, err_len, tr(S_ERR_NO_SERVICE), count);
     } else if (count == 0) {
-        format_wide(err, err_len,
-            L"No iOS device is connected.\n"
-            L"Connect and unlock the device. (The Apple Mobile Device Service is running but reports no device.)");
+        copy_wide(err, err_len, tr(S_ERR_NO_DEVICE));
     } else {
         if (wanted[0])
-            format_wide(err, err_len, L"Device %hs is not connected (idevice error %d).", wanted, (int)error);
+            format_wide(err, err_len, tr(S_ERR_DEVICE_NOT_CONNECTED), wanted, (int)error);
         else
-            format_wide(err, err_len, L"Could not open the device (idevice error %d).", (int)error);
-        append_wide(err, err_len, L"\nDevices reported by the service:");
+            format_wide(err, err_len, tr(S_ERR_OPEN_DEVICE), (int)error);
+        append_wide(err, err_len, L"%s", tr(S_ERR_DEVICES_REPORTED));
         for (i = 0; i < count; i++)
             append_wide(err, err_len, L"\n  %hs (%s)", list[i].udid,
-                        list[i].conn_type == CONNECTION_TYPE_NETWORK ? L"network" : L"USB");
+                        list[i].conn_type == CONNECTION_TYPE_NETWORK ? L"Wi-Fi" : L"USB");
     }
     if (list) usbmuxd_device_list_free(&list);
 }
@@ -142,6 +137,7 @@ Device* device_acquire(const char* udid, BOOL fresh, WCHAR* err, int err_len)
         WSADATA wsa;
         WSAStartup(MAKEWORD(2, 2), &wsa);
         log_open();
+        lang_load();
         first_use = FALSE;
     }
 
@@ -233,20 +229,19 @@ void lockdown_message(lockdownd_error_t e, WCHAR* dst, int dst_len)
 {
     switch (e) {
     case LOCKDOWN_E_PASSWORD_PROTECTED:
-        copy_wide(dst, dst_len, L"The device is locked with a passcode.\nUnlock it and try again.");
+        copy_wide(dst, dst_len, tr(S_ERR_PASSCODE));
         break;
     case LOCKDOWN_E_PAIRING_DIALOG_RESPONSE_PENDING:
-        copy_wide(dst, dst_len, L"Tap \"Trust\" on the device, then try again.");
+        copy_wide(dst, dst_len, tr(S_ERR_TRUST_PENDING));
         break;
     case LOCKDOWN_E_USER_DENIED_PAIRING:
-        copy_wide(dst, dst_len, L"Pairing was declined on the device (\"Don't Trust\").\n"
-                                L"Reconnect the device and tap \"Trust\".");
+        copy_wide(dst, dst_len, tr(S_ERR_TRUST_DENIED));
         break;
     case LOCKDOWN_E_INVALID_HOST_ID:
-        copy_wide(dst, dst_len, L"The device is not paired with this computer.\nReconnect it and tap \"Trust\".");
+        copy_wide(dst, dst_len, tr(S_ERR_NOT_PAIRED));
         break;
     default:
-        format_wide(dst, dst_len, L"Could not connect to lockdownd: %hs (%d)", lockdownd_strerror(e), (int)e);
+        format_wide(dst, dst_len, tr(S_ERR_LOCKDOWN), lockdownd_strerror(e), (int)e);
         break;
     }
 }
@@ -329,7 +324,7 @@ BOOL start_service(Device* device, const char* name,
 
     if (e != LOCKDOWN_E_SUCCESS || !*service || (*service)->port == 0) {
         if (*service) { lockdownd_service_descriptor_free(*service); *service = NULL; }
-        if (err) format_wide(err, err_len, L"Could not start service %hs: %hs", name, lockdownd_strerror(e));
+        if (err) format_wide(err, err_len, tr(S_ERR_START_SERVICE), name, lockdownd_strerror(e));
         return FALSE;
     }
     return TRUE;
@@ -358,7 +353,7 @@ static BOOL house_arrest_connect(AfcConn* conn, WCHAR* err, int err_len)
     lockdownd_service_descriptor_free(service);
     if (e != HOUSE_ARREST_E_SUCCESS || !conn->house_arrest) {
         conn->house_arrest = NULL;
-        if (err) copy_wide(err, err_len, L"Could not connect to house_arrest.");
+        if (err) copy_wide(err, err_len, tr(S_ERR_HOUSE_ARREST));
         return FALSE;
     }
     return TRUE;
@@ -417,7 +412,7 @@ static BOOL open_application(AfcConn* conn, const char* bundle_id, WCHAR* err, i
     if (err) {
         WCHAR wide_id[APP_ID_MAX];
         utf8_to_wide(bundle_id, wide_id, APP_ID_MAX);
-        format_wide(err, err_len, L"The application %s does not share its files (%hs).", wide_id, last_error);
+        format_wide(err, err_len, tr(S_ERR_APP_NOT_SHARED), wide_id, last_error);
     }
     return FALSE;
 }
@@ -441,7 +436,7 @@ static AfcConn* conn_open_on(Device* device, const RemotePath* rp, WCHAR* err, i
         if (ok) {
             ok = afc_client_new(device->dev, service, &conn->afc) == AFC_E_SUCCESS && conn->afc != NULL;
             lockdownd_service_descriptor_free(service);
-            if (!ok && err) copy_wide(err, err_len, L"Could not connect to the AFC service.");
+            if (!ok && err) copy_wide(err, err_len, tr(S_ERR_AFC));
         }
     }
     if (!ok) { conn->afc = NULL; conn_close(conn); return NULL; }

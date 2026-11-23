@@ -193,13 +193,19 @@ void log_line(const char* fmt, ...)
 
 /* ------------------------------------------------------------- error box */
 
+/* TRUE when 'message' was made from the text 'id' (compared up to its first placeholder). */
+static BOOL made_from(const WCHAR* message, StringId id)
+{
+    const WCHAR* pattern = tr(id);
+    size_t fixed = wcscspn(pattern, L"%\n");
+    return fixed > 0 && wcsncmp(message, pattern, fixed) == 0;
+}
+
 /* TRUE for the messages that mean "there is no usable device". */
 static BOOL is_no_device_message(const WCHAR* message)
 {
-    return wcsncmp(message, L"No iOS device", 13) == 0 ||
-           wcsncmp(message, L"Cannot reach", 12) == 0 ||
-           wcsncmp(message, L"Device ", 7) == 0 ||
-           wcsncmp(message, L"Could not open the device", 25) == 0;
+    return made_from(message, S_ERR_NO_DEVICE) || made_from(message, S_ERR_NO_SERVICE) ||
+           made_from(message, S_ERR_DEVICE_NOT_CONNECTED) || made_from(message, S_ERR_OPEN_DEVICE);
 }
 
 /* Set by device.c when a device was opened; lets the "no device" box appear again. */

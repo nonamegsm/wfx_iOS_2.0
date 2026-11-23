@@ -22,3 +22,19 @@
 #define IDC_P_LINKS     1107
 #define IDC_P_BLOCKS    1108
 #define IDC_P_TARGET    1109
+
+/* Labels that are translated when a dialog opens (see dialogs.c) */
+#define IDC_GRP_DEVICE  1201
+#define IDC_LBL_USE     1202
+#define IDC_GRP_OPTIONS 1203
+#define IDC_LBL_LANG    1204
+#define IDC_LANGUAGE    1205
+#define IDC_PL_NAME     1211
+#define IDC_PL_PATH     1212
+#define IDC_PL_TYPE     1213
+#define IDC_PL_SIZE     1214
+#define IDC_PL_CREATED  1215
+#define IDC_PL_MODIFIED 1216
+#define IDC_PL_LINKS    1217
+#define IDC_PL_BLOCKS   1218
+#define IDC_PL_TARGET   1219
