@@ -1,5 +1,7 @@
 build/
 dist/
+installer/bin/
+installer/out/
 vcpkg/
 vcpkg_installed/
 *.i64

@@ -21,15 +21,38 @@ libimobiledevice-glue and [OpenSSL](https://www.openssl.org/).
 
 ## Requirements
 
-- Total Commander (32- or 64-bit)
-- Apple Mobile Device Support (comes with iTunes or the "Apple Devices" app), with the
-  "Apple Mobile Device Service" running
-- The device unlocked and "Trust this computer" accepted
+- Total Commander (32- or 64-bit) on Windows 10 or 11
+- Apple Mobile Device Support, with the "Apple Mobile Device Service" running. This is
+  Apple's own driver and USB service. It is not included here (Apple does not allow
+  redistribution); the setup program downloads it from Apple for you, see below.
+- The device connected by cable, unlocked, and "Trust this computer" accepted
 
 ## Install
 
-Download the zip from [Releases](../../releases) and open it in Total Commander; it
-offers to install the plugin. Then open *Network Neighborhood* -> *iOS*.
+### Setup program (recommended)
+
+Download `wfx_iOS_2.0_setup.exe` from [Releases](../../releases), or the latest build from
+the [`dist` branch](../../tree/dist). Close Total Commander and run it. It:
+
+1. finds Total Commander and installs both plugin files (32- and 64-bit); an existing
+   wfx_iOS, including Domo's 1.3, is updated in place;
+2. registers the plugin in `wincmd.ini`;
+3. if Apple Mobile Device Support is missing, offers to download and install it from Apple
+   through `winget` (`Apple.AppleMobileDeviceSupport`), and starts its service.
+
+The setup program is not code-signed, so Windows SmartScreen may ask for confirmation.
+
+### Manual
+
+Open `wfx_iOS_2.0.zip` in Total Commander and accept the install prompt (no panel may be
+inside the plugin at that moment). Install Apple's part yourself from an elevated
+PowerShell, or install iTunes from apple.com:
+
+```powershell
+winget install -e --id Apple.AppleMobileDeviceSupport
+```
+
+Then open *Network Neighborhood* -> *iOS*.
 
 ## Folders
 
@@ -59,21 +82,44 @@ Section `[wfx_iOS]` in Total Commander's `fsplugin.ini`:
 
 ## Changes from 1.3
 
-- Current libimobiledevice and OpenSSL 3
+- Current libimobiledevice and OpenSSL 3; works with iOS / iPadOS 27
+- Applications are listed by name instead of bundle id, and open on their `Documents` folder
+- `iCloud photos` folder for photos stored outside `/DCIM`
 - Edited-photo lookup also covers HEIC and PNG
 - Resume for downloads and uploads; direct device-to-device copy
 - `Root` is shown only when the device offers afc2
-- Wi-Fi-synced devices are accepted when no USB device is connected
+- USB is preferred; Wi-Fi-synced devices are used when no USB device is connected
+- Error messages say which step failed, and a trace file is written
 - The two dialogs of 1.3 are plain message boxes for now
+
+## Troubleshooting
+
+| Message | Meaning |
+|---|---|
+| Cannot reach the Apple Mobile Device Service | Apple Mobile Device Support is not installed or its service is stopped |
+| The service is running but reports no connected device | cable, driver, or the device is locked |
+| Tap "Trust" on the device | pairing has not been accepted yet |
+| An application shows an error instead of `Documents` | the app does not share files; iOS grants no access to it |
+
+Photos missing from `Photos`: only pictures taken on the device are in `/DCIM`. Pictures that
+arrived through iCloud Photos are under `iCloud photos`, and with "Optimise Storage" turned on
+many originals are not on the device at all.
+
+For anything else, attach `%TEMP%\wfx_iOS.log` to an issue. The log contains device names,
+identifiers and file names, so check it before posting.
 
 ## Build
 
-Run `build.bat` (Visual Studio with C++ and git required); dependencies come from
-vcpkg. Every push is also built by GitHub Actions for x86 and x64.
+Run `build.bat` (Visual Studio with C++ and git required); dependencies come from vcpkg.
+The `ports/` folder holds a patched copy of vcpkg's libimobiledevice port and is required:
+the stock port builds an AFC implementation that does not work under MSVC (wrong byte order).
+Every push is built by GitHub Actions for x86 and x64, including the setup program
+(`installer/wfx_iOS.iss`, Inno Setup); the result is published to the `dist` branch.
 
 ## Status
 
-New code. Please report problems with the iOS version and device model.
+Beta. Verified so far on one device (iPad, iPadOS 27.2, Windows, USB): browsing `User` and
+`Photos`. Please report results with the iOS version and device model.
 
 ## License
 

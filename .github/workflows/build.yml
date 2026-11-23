@@ -59,8 +59,31 @@ jobs:
             build/vcpkg-manifest-install.log
             ${{ env.VCPKG_INSTALLATION_ROOT }}/buildtrees/*/*.log
 
-  package:
+  installer:
     needs: build
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Build setup program (Inno Setup)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path installer\bin | Out-Null
+          Copy-Item artifacts\wfx_iOS-x64\wfx_iOS.wfx64, artifacts\wfx_iOS-x86\wfx_iOS.wfx installer\bin\
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          & $iscc installer\wfx_iOS.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wfx_iOS-setup
+          path: installer/out/wfx_iOS_2.0_setup.exe
+          if-no-files-found: error
+
+  package:
+    needs: [build, installer]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -72,10 +95,13 @@ jobs:
           mkdir dist
           cp artifacts/wfx_iOS-x64/wfx_iOS.wfx64 artifacts/wfx_iOS-x86/wfx_iOS.wfx pluginst.inf readme.txt LICENSE dist/
           cd dist && zip -9 ../wfx_iOS_2.0.zip *
+          cp ../artifacts/wfx_iOS-setup/wfx_iOS_2.0_setup.exe .
       - uses: actions/upload-artifact@v4
         with:
           name: wfx_iOS_2.0
-          path: wfx_iOS_2.0.zip
+          path: |
+            wfx_iOS_2.0.zip
+            dist/wfx_iOS_2.0_setup.exe
       - name: Publish latest build to the dist branch
         if: github.ref == 'refs/heads/main'
         run: |
@@ -92,5 +118,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           PRE=""; case "$GITHUB_REF_NAME" in *-*) PRE="--prerelease";; esac
-          gh release create "$GITHUB_REF_NAME" wfx_iOS_2.0.zip $PRE --title "wfx_iOS ${GITHUB_REF_NAME#v}" \
+          gh release create "$GITHUB_REF_NAME" wfx_iOS_2.0.zip dist/wfx_iOS_2.0_setup.exe $PRE --title "wfx_iOS ${GITHUB_REF_NAME#v}" \
             --notes "Update of wfx_iOS 1.3 by Domo (original author) for modern iOS. Built by GitHub Actions with MSVC for x86 and x64. Beta: not yet verified on a device - please report results."
