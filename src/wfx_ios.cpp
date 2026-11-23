@@ -22,6 +22,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdarg.h>
 #include <string>
 #include <vector>
 #include <map>
@@ -141,6 +142,17 @@ static void show_error(const std::wstring& msg)
     MessageBoxW(GetActiveWindow(), msg.c_str(), PLUGIN_TITLE, MB_OK | MB_ICONWARNING);
 }
 
+// Line in the trace file (stderr is redirected to %TEMP%\wfx_iOS.log when Debug is on).
+static bool g_trace = false;
+static void trace(const char* fmt, ...)
+{
+    if (!g_trace) return;
+    SYSTEMTIME t; GetLocalTime(&t);
+    fprintf(stderr, "%02d:%02d:%02d.%03d wfx_iOS: ", t.wHour, t.wMinute, t.wSecond, t.wMilliseconds);
+    va_list ap; va_start(ap, fmt); vfprintf(stderr, fmt, ap); va_end(ap);
+    fputc('\n', stderr);
+}
+
 // ---------------------------------------------------------------- paths
 
 enum Mode { M_INVALID, M_TOP, M_ROOT, M_USER, M_PHOTOS, M_PROCESSED, M_APPLIST, M_APP };
@@ -242,6 +254,9 @@ static DevicePtr get_device(bool fresh, std::wstring* err)
                 setvbuf(stderr, nullptr, _IONBF, 0);
                 idevice_set_debug_level(1);
                 libusbmuxd_set_debug_level(1);
+                g_trace = true;
+                OSVERSIONINFOW os; memset(&os, 0, sizeof(os)); os.dwOSVersionInfoSize = sizeof(os);
+                trace("wfx_iOS 2.0 (built " __DATE__ " " __TIME__ ", %d-bit), ini %s", (int)(sizeof(void*) * 8), g_ini.c_str());
             }
         }
     }
@@ -284,6 +299,7 @@ static DevicePtr get_device(bool fresh, std::wstring* err)
     char* udid = nullptr;
     if (idevice_get_udid(dev, &udid) == IDEVICE_E_SUCCESS && udid) { d->udid = udid; free(udid); }
     g_device = d;
+    trace("device %s opened over %s", d->udid.c_str(), network ? "Wi-Fi" : "USB");
     return d;
 }
 
@@ -293,6 +309,7 @@ static bool start_service(const DevicePtr& d, const char* name, lockdownd_servic
     lockdownd_client_t lc = nullptr;
     lockdownd_error_t le = lockdownd_client_new_with_handshake(d->dev, &lc, PLUGIN_LABEL);
     if (le != LOCKDOWN_E_SUCCESS || !lc) {
+        trace("lockdown handshake failed: %d (%s)", (int)le, lockdownd_strerror(le));
         if (err) {
             *err = lockdown_message(le);
             if (le == LOCKDOWN_E_MUX_ERROR) {
@@ -308,6 +325,15 @@ static bool start_service(const DevicePtr& d, const char* name, lockdownd_servic
         return false;
     }
     if (!d->iosMajor) {
+        for (const char* key : { "DeviceName", "DeviceClass", "ProductType", "ProductVersion", "BuildVersion" }) {
+            plist_t pv = nullptr; char* ps = nullptr;
+            if (lockdownd_get_value(lc, nullptr, key, &pv) == LOCKDOWN_E_SUCCESS && pv) {
+                plist_get_string_val(pv, &ps);
+                trace("%s: %s", key, ps ? ps : "?");
+                if (ps) plist_mem_free(ps);
+                plist_free(pv);
+            }
+        }
         plist_t v = nullptr;
         if (lockdownd_get_value(lc, nullptr, "ProductVersion", &v) == LOCKDOWN_E_SUCCESS && v) {
             char* s = nullptr; plist_get_string_val(v, &s);
@@ -319,6 +345,8 @@ static bool start_service(const DevicePtr& d, const char* name, lockdownd_servic
     *svc = nullptr;
     le = lockdownd_start_service(lc, name, svc);
     lockdownd_client_free(lc);
+    trace("start %s: %d (%s), port %d, ssl %d", name, (int)le, lockdownd_strerror(le),
+          *svc ? (int)(*svc)->port : 0, *svc ? (int)(*svc)->ssl_enabled : -1);
     if (le != LOCKDOWN_E_SUCCESS || !*svc || !(*svc)->port) {
         if (*svc) { lockdownd_service_descriptor_free(*svc); *svc = nullptr; }
         if (err) *err = L"Could not start service " + to_wide(name) + L": " + to_wide(lockdownd_strerror(le));
@@ -1018,8 +1046,9 @@ HANDLE __stdcall FsFindFirstW(WCHAR* Path, WIN32_FIND_DATAW* FindData)
                   (is_connection_error(e) ? afc_probe(rp) : std::wstring());
         break; }
     }
+    trace("list %s -> %s%s", to_utf8(Path).c_str(), ok ? "ok, entries: " : "FAILED", ok ? std::to_string(h->items.size()).c_str() : "");
     if (!ok) {
-        if (!err.empty()) show_error(err);
+        if (!err.empty()) { trace("%s", to_utf8(err.c_str()).c_str()); show_error(err); }
         SetLastError(ERROR_PATH_NOT_FOUND);
         return INVALID_HANDLE_VALUE;
     }
