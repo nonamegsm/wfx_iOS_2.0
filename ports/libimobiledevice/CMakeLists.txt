@@ -16,6 +16,14 @@ if(MSVC)
     add_compile_options(/std:c11)
 endif()
 
+# wfx_iOS: include/endianness.h only learns the byte order from __LITTLE_ENDIAN__ /
+# __BIG_ENDIAN__, which MSVC does not define. Without this, le64toh()/htole64()
+# byte-swap on x86/x64 and every AFC packet header goes out big-endian, so the
+# device drops the connection on the first file-system request.
+if(WIN32)
+    add_compile_definitions(__LITTLE_ENDIAN__=1)
+endif()
+
 list(APPEND DEFINITIONS -DHAVE_OPENSSL)
 
 if(BUILD_SHARED_LIBS)
