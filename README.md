@@ -87,7 +87,7 @@ for tidying up a device with many applications:
 
 | Action | How |
 |---|---|
-| Move icons to another page or folder | select them (Ctrl / Shift for several), drag them onto it in the tree |
+| Move icons to another page or folder | select them (Ctrl / Shift for several), drag them onto it in the tree, or onto a folder in the list |
 | Change the order | drag within the list; the icons land before the one they are dropped on |
 | New folder | select the icons for it, `New folder`, type its name |
 | Rename / ungroup a folder | open or select it, `Rename folder` / `Ungroup folder` |

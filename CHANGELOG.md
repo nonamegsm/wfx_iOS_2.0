@@ -1,5 +1,20 @@
 # Changelog
 
+## 3.2
+
+Second review of the home screen arrangement:
+
+- Dropping icons onto a folder in the icon list now puts them into that folder, as on
+  the device (before, they landed in front of it). The folder is highlighted while dragging.
+- Dropping icons where they already are no longer counts as a change.
+- The icon list scrolls while dragging near its upper or lower edge.
+- "Applied" in the status line is replaced by the hint again with the next change;
+  `New page` does not add a second empty page.
+- When the device cannot be reached while applying, the real reason is shown instead of
+  an error number. The device gets more time (about 5 s) to take over a layout.
+- Several changes within one second no longer overwrite the backup of the first one.
+- Faster lookup of items in large folders in the `Home screen` panel view.
+
 ## 3.1
 
 Corrections to the home screen arrangement, found in a review of 3.0:

@@ -189,6 +189,23 @@ static void item_name(const ItemRef* items, int index, char* dst, int dst_len)
     }
 }
 
+/*
+ * TRUE when item 'index' has the file name 'name'. Same result as comparing
+ * with item_name(), but the costly numbering of equal names is done only for
+ * items whose own name fits.
+ */
+static BOOL item_has_name(const ItemRef* items, int index, const char* name)
+{
+    char own[NAME_MAX_UTF8];
+    size_t own_len;
+
+    home_item_name(items[index].node, own, sizeof(own));
+    own_len = strlen(own);
+    if (_strnicmp(name, own, own_len) != 0) return FALSE;      /* neither "own" nor "own (2)" */
+    item_name(items, index, own, sizeof(own));
+    return strcmp(own, name) == 0;
+}
+
 /* ------------------------------------------------------------------ paths */
 
 /* "Dock" for 0, "Page 01" for 1, ... */
@@ -236,7 +253,7 @@ static plist_t find_top(const char* name, BOOL create)
 static plist_t find_container(const char* path, BOOL create_page)
 {
     static ItemRef items[ITEMS_MAX];        /* caller holds g_home_lock */
-    char parent[AFC_PATH_MAX], name[NAME_MAX_UTF8], item[NAME_MAX_UTF8];
+    char parent[AFC_PATH_MAX], name[NAME_MAX_UTF8];
     plist_t top;
     int count, i;
 
@@ -248,10 +265,8 @@ static plist_t find_container(const char* path, BOOL create_page)
     top = find_top(parent + 1, FALSE);
     if (!top) return NULL;
     count = home_collect(top, items, ITEMS_MAX);
-    for (i = 0; i < count; i++) {
-        item_name(items, i, item, sizeof(item));
-        if (strcmp(item, name) == 0) return home_is_folder(items[i].node) ? items[i].node : NULL;
-    }
+    for (i = 0; i < count; i++)
+        if (item_has_name(items, i, name)) return home_is_folder(items[i].node) ? items[i].node : NULL;
     return NULL;
 }
 
@@ -259,7 +274,7 @@ static plist_t find_container(const char* path, BOOL create_page)
 static BOOL find_item(const char* path, ItemRef* found)
 {
     static ItemRef items[ITEMS_MAX];        /* caller holds g_home_lock */
-    char parent[AFC_PATH_MAX], name[NAME_MAX_UTF8], item[NAME_MAX_UTF8];
+    char parent[AFC_PATH_MAX], name[NAME_MAX_UTF8];
     plist_t container;
     int count, i;
 
@@ -268,10 +283,8 @@ static BOOL find_item(const char* path, ItemRef* found)
     container = find_container(parent, FALSE);
     if (!container) return FALSE;
     count = home_collect(container, items, ITEMS_MAX);
-    for (i = 0; i < count; i++) {
-        item_name(items, i, item, sizeof(item));
-        if (strcmp(item, name) == 0) { *found = items[i]; return TRUE; }
-    }
+    for (i = 0; i < count; i++)
+        if (item_has_name(items, i, name)) { *found = items[i]; return TRUE; }
     return FALSE;
 }
 
@@ -400,8 +413,12 @@ static void save_backup(WCHAR* path, int path_len)
     GetLocalTime(&now);
     format_wide(path, path_len, L"%s\\home-screen-%04d%02d%02d-%02d%02d%02d.plist", folder,
                 now.wYear, now.wMonth, now.wDay, now.wHour, now.wMinute, now.wSecond);
-    file = CreateFileW(path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (file == INVALID_HANDLE_VALUE) { path[0] = 0; return; }
+    /* Several changes within one second: the file of the first one is the true "before". */
+    file = CreateFileW(path, GENERIC_WRITE, 0, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (file == INVALID_HANDLE_VALUE) {
+        if (GetLastError() != ERROR_FILE_EXISTS) path[0] = 0;
+        return;
+    }
     WriteFile(file, g_device_xml, g_device_xml_len, &written, NULL);
     CloseHandle(file);
 }
@@ -461,7 +478,7 @@ static BOOL layout_write(WCHAR* err, int err_len)
     char* sent = NULL;
     uint32_t sent_len = 0;
     sbservices_error_t e = SBSERVICES_E_UNKNOWN_ERROR;
-    BOOL taken = FALSE;
+    BOOL taken = FALSE, connected;
     int attempt;
 
     if (err && err_len > 0) err[0] = 0;
@@ -484,7 +501,8 @@ static BOOL layout_write(WCHAR* err, int err_len)
     }
     save_backup(backup, MAX_PATH);
 
-    if (springboard_open(udid, &device, &client, open_err, MSG_MAX)) {
+    connected = springboard_open(udid, &device, &client, open_err, MSG_MAX);
+    if (connected) {
         e = sbservices_set_icon_state(client, to_send);
         springboard_close(device, client);
     }
@@ -493,7 +511,7 @@ static BOOL layout_write(WCHAR* err, int err_len)
     log_line("home: writing the layout -> %d", (int)e);
 
     /* SpringBoard needs a moment to rearrange its icons: look a few times. */
-    for (attempt = 0; attempt < 8; attempt++) {
+    for (attempt = 0; attempt < 12; attempt++) {
         if (e == SBSERVICES_E_SUCCESS) Sleep(400);
         if (!layout_load(udid, NULL, 0)) {
             plist_free(g_layout);                       /* unknown state: read again on next use */
@@ -507,7 +525,8 @@ static BOOL layout_write(WCHAR* err, int err_len)
     log_line("home: the device %s the layout", taken ? "took" : "did not take");
 
     if (!taken && err && err_len > 0) {
-        if (e != SBSERVICES_E_SUCCESS) format_wide(err, err_len, tr(S_ERR_HOME_WRITE), (int)e, backup);
+        if (!connected && open_err[0])      copy_wide(err, err_len, open_err);      /* e.g. no device */
+        else if (e != SBSERVICES_E_SUCCESS) format_wide(err, err_len, tr(S_ERR_HOME_WRITE), (int)e, backup);
         else                           copy_wide(err, err_len, tr(S_ERR_HOME_IGNORED));
     }
     return taken;
@@ -861,6 +880,13 @@ plist_t home_read_layout(const char* udid, WCHAR* err, int err_len)
     if (layout_load(udid, err, err_len) && g_device_xml)
         plist_from_xml(g_device_xml, g_device_xml_len, &layout);
     LeaveCriticalSection(&g_home_lock);
+
+    /* The window relies on "a list of lists". */
+    if (layout && !home_layout_is_valid(layout)) {
+        plist_free(layout);
+        layout = NULL;
+        if (err && err_len > 0) format_wide(err, err_len, tr(S_ERR_HOME_READ), -1);
+    }
     return layout;
 }
 

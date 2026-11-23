@@ -51,6 +51,7 @@ typedef struct {
     BOOL       changed;             /* differs from the device */
     BOOL       filling;             /* we are rebuilding the tree: ignore its messages */
     BOOL       dragging;
+    int        drop_item;           /* folder in the list marked as drop target, or -1 */
     HIMAGELIST images;
     int        icon_size;
     IconSlot*  slots;
@@ -286,6 +287,7 @@ static void fill_list(HWND dialog, Arrange* a)
 
     SendMessageW(list, WM_SETREDRAW, FALSE, 0);
     ListView_DeleteAllItems(list);
+    a->drop_item = -1;
     for (i = 0; i < count; i++) {
         LVITEMW item;
         memset(&item, 0, sizeof(item));
@@ -318,6 +320,9 @@ static void refresh(HWND dialog, Arrange* a)
     else            copy_wide(title, TITLE_LEN * 2, tr(S_DLG_ARRANGE));
     SetWindowTextW(dialog, title);
 
+    /* "Applied" is true only until the next change. */
+    if (a->changed) SetDlgItemTextW(dialog, IDC_A_HINT, tr(S_A_HINT));
+
     in_folder = home_is_folder(a->current);
     EnableWindow(GetDlgItem(dialog, IDC_A_NEWFOLDER), !in_folder);
     EnableWindow(GetDlgItem(dialog, IDC_A_APPLY), a->changed);
@@ -349,12 +354,16 @@ static BOOL move_items(plist_t layout, plist_t source, int* selected, int count,
     int page_size = home_folder_page_size(layout);      /* before anything is taken apart */
     int taken_count = 0, kept = 0, i;
 
+    int source_count;
+
     if (count <= 0 || !source || !target) return FALSE;
 
     /* Leave out what cannot go there: the target itself, and folders when the target is a folder. */
-    home_collect(source, g_items, ITEMS_MAX);
+    source_count = home_collect(source, g_items, ITEMS_MAX);
     for (i = 0; i < count; i++) {
-        plist_t item = g_items[selected[i]].node;
+        plist_t item;
+        if (selected[i] < 0 || selected[i] >= source_count) continue;
+        item = g_items[selected[i]].node;
         if (item == target) continue;
         if (home_is_folder(target) && home_is_folder(item)) continue;
         selected[kept++] = selected[i];
@@ -362,12 +371,22 @@ static BOOL move_items(plist_t layout, plist_t source, int* selected, int count,
     count = kept;
     if (count == 0) return FALSE;
 
-    /* Within one container the icons taken from before the target position move it forward. */
-    if (target == source && position >= 0) {
-        int before = 0;
-        for (i = 0; i < count; i++)
-            if (selected[i] < position) before++;
-        position -= before;
+    if (target == source) {
+        /*
+         * Icons that lie next to each other and are dropped on themselves, or
+         * right before or after themselves, stay where they are: no change.
+         */
+        BOOL together = selected[count - 1] - selected[0] == count - 1;
+        int drop = position < 0 ? source_count : position;
+        if (together && drop >= selected[0] && drop <= selected[count - 1] + 1) return FALSE;
+
+        /* The icons taken from before the target position move it forward. */
+        if (position >= 0) {
+            int before = 0;
+            for (i = 0; i < count; i++)
+                if (selected[i] < position) before++;
+            position -= before;
+        }
     }
 
     /* Take from the back, so that the numbers of the others stay valid. */
@@ -396,7 +415,16 @@ static void move_selected(HWND dialog, Arrange* a, plist_t target, int position)
     refresh(dialog, a);
 }
 
-/* What is under the mouse: a place in the tree, or a position in the list. */
+/* Marks the folder in the list the icons would be dropped into; -1 removes the mark. */
+static void drop_mark(HWND list, Arrange* a, int item)
+{
+    if (a->drop_item == item) return;
+    if (a->drop_item >= 0) ListView_SetItemState(list, a->drop_item, 0, LVIS_DROPHILITED);
+    if (item >= 0)         ListView_SetItemState(list, item, LVIS_DROPHILITED, LVIS_DROPHILITED);
+    a->drop_item = item;
+}
+
+/* What is under the mouse: a place in the tree, a folder in the list, or a position in the list. */
 static BOOL drop_target(HWND dialog, Arrange* a, plist_t* target, int* position)
 {
     HWND tree = GetDlgItem(dialog, IDC_A_TREE);
@@ -419,6 +447,7 @@ static BOOL drop_target(HWND dialog, Arrange* a, plist_t* target, int* position)
         hit.pt = point;
         TreeView_HitTest(tree, &hit);
         if (!hit.hItem) return FALSE;
+        drop_mark(list, a, -1);
         TreeView_SelectDropTarget(tree, hit.hItem);
         *target = tree_container(tree, hit.hItem);
         *position = -1;
@@ -429,14 +458,32 @@ static BOOL drop_target(HWND dialog, Arrange* a, plist_t* target, int* position)
     GetWindowRect(list, &area);
     if (PtInRect(&area, screen)) {
         LVHITTESTINFO hit;
+        int over, count;
+
+        if (screen.y < area.top + 16)    SendMessageW(list, WM_VSCROLL, SB_LINEUP, 0);
+        if (screen.y > area.bottom - 16) SendMessageW(list, WM_VSCROLL, SB_LINEDOWN, 0);
+
         point = screen;
         ScreenToClient(list, &point);
         memset(&hit, 0, sizeof(hit));
         hit.pt = point;
+        over = ListView_HitTest(list, &hit);            /* -1 on empty space: to the end */
         *target = a->current;
-        *position = ListView_HitTest(list, &hit);       /* -1 on empty space: to the end */
+        *position = over;
+
+        /* On a folder that is not dragged itself: into that folder, as on the device. */
+        count = home_collect(a->current, g_items, ITEMS_MAX);
+        if (over >= 0 && over < count && home_is_folder(g_items[over].node) &&
+            !(ListView_GetItemState(list, over, LVIS_SELECTED) & LVIS_SELECTED)) {
+            *target = g_items[over].node;
+            *position = -1;
+        } else {
+            over = -1;
+        }
+        drop_mark(list, a, over);
         return TRUE;
     }
+    drop_mark(list, a, -1);
     return FALSE;
 }
 
@@ -450,6 +497,7 @@ static void drag_end(HWND dialog, Arrange* a, BOOL drop)
     a->dragging = FALSE;
     valid = drop && drop_target(dialog, a, &target, &position);
     TreeView_SelectDropTarget(GetDlgItem(dialog, IDC_A_TREE), NULL);
+    drop_mark(GetDlgItem(dialog, IDC_A_LIST), a, -1);
     ReleaseCapture();
     if (valid) move_selected(dialog, a, target, position);
 }
@@ -771,14 +819,19 @@ static void on_command(HWND dialog, Arrange* a, int id)
 {
     HWND tree = GetDlgItem(dialog, IDC_A_TREE);
     BOOL editing = TreeView_GetEditControl(tree) != NULL;
-    plist_t folder;
+    plist_t folder;                     /* also: the last page, for "New page" */
 
     switch (id) {
     case IDC_A_NEWFOLDER: new_folder(dialog, a); break;
     case IDC_A_NEWPAGE:
-        /* An empty page; it reaches the device only when icons are put on it. */
-        a->current = plist_new_array();
-        plist_array_append_item(a->layout, a->current);
+        /* An empty page at the end; it reaches the device only when icons are put on it. */
+        folder = plist_array_get_item(a->layout, plist_array_get_size(a->layout) - 1);
+        if (plist_array_get_size(a->layout) > 1 && plist_array_get_size(folder) == 0) {
+            a->current = folder;                        /* there is one already */
+        } else {
+            a->current = plist_new_array();
+            plist_array_append_item(a->layout, a->current);
+        }
         refresh(dialog, a);
         break;
     case IDC_A_UNGROUP:   ungroup_folder(dialog, a); break;
@@ -871,6 +924,7 @@ void show_arrange(HWND parent, const char* udid)
 
     if (!a) return;
     copy_text(a->udid, UDID_MAX, udid);
+    a->drop_item = -1;
     a->slots = (IconSlot*)calloc(ICON_SLOTS_MAX, sizeof(IconSlot));
     a->layout = a->slots ? home_read_layout(udid, err, MSG_MAX) : NULL;
     SetCursor(old_cursor);
