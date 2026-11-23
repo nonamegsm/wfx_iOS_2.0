@@ -10,7 +10,7 @@ find_package(unofficial-libimobiledevice CONFIG REQUIRED)
 
 add_library(wfx_iOS SHARED src/wfx_ios.cpp src/fsplugin.h src/resource.h src/wfx_ios.rc wfx_ios.def)
 target_compile_definitions(wfx_iOS PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS)
-target_link_libraries(wfx_iOS PRIVATE unofficial::libimobiledevice::libimobiledevice shlwapi shell32 ws2_32 crypt32 iphlpapi)
+target_link_libraries(wfx_iOS PRIVATE unofficial::libimobiledevice::libimobiledevice shlwapi shell32 gdiplus ole32 ws2_32 crypt32 iphlpapi)
 
 if(CMAKE_SIZEOF_VOID_P EQUAL 8)
     set_target_properties(wfx_iOS PROPERTIES SUFFIX ".wfx64")

@@ -38,8 +38,13 @@
 #include <libimobiledevice/house_arrest.h>
 #include <libimobiledevice/installation_proxy.h>
 #include <libimobiledevice/service.h>
+#include <libimobiledevice/sbservices.h>
 #include <plist/plist.h>
 #include <usbmuxd.h>
+
+#include <objidl.h>
+namespace Gdiplus { using std::min; using std::max; }
+#include <gdiplus.h>
 
 #include "fsplugin.h"
 #include "resource.h"
@@ -1263,6 +1268,84 @@ static void show_settings(HWND wnd)
     DialogBoxParamW(g_hInst, MAKEINTRESOURCEW(IDD_SETTINGS), wnd, settings_proc, (LPARAM)&st);
 }
 
+// ---------------------------------------------------------------- icons
+
+static HICON stock_icon(int siid, bool small)
+{
+    SHSTOCKICONINFO sii; memset(&sii, 0, sizeof(sii)); sii.cbSize = sizeof(sii);
+    if (FAILED(SHGetStockIconInfo((SHSTOCKICONID)siid, SHGSI_ICON | (small ? SHGSI_SMALLICON : SHGSI_LARGEICON), &sii))) return nullptr;
+    return sii.hIcon;
+}
+
+static std::mutex g_sbLock;
+static sbservices_client_t g_sb = nullptr;
+static DevicePtr g_sbDevice;
+static std::map<std::string, std::vector<unsigned char>> g_iconPng;    // bundle id -> PNG (empty = none)
+
+static bool icon_cached(const std::string& bundle)
+{
+    std::lock_guard<std::mutex> l(g_sbLock);
+    return g_iconPng.count(bundle) != 0;
+}
+
+// Home-screen icon of an app as PNG, from SpringBoard. Cached per device connection.
+static bool app_icon_png(const std::string& bundle, std::vector<unsigned char>& out)
+{
+    std::wstring ignored;
+    DevicePtr d = get_device(false, &ignored);
+    std::lock_guard<std::mutex> l(g_sbLock);
+    if (d != g_sbDevice) {
+        if (g_sb) { sbservices_client_free(g_sb); g_sb = nullptr; }
+        g_iconPng.clear();
+        g_sbDevice = d;
+    }
+    if (!d) return false;
+    auto it = g_iconPng.find(bundle);
+    if (it != g_iconPng.end()) { out = it->second; return !out.empty(); }
+
+    if (!g_sb) {
+        lockdownd_service_descriptor_t svc = nullptr;
+        if (!start_service(d, SBSERVICES_SERVICE_NAME, &svc, &ignored)) return false;
+        sbservices_error_t se = sbservices_client_new(d->dev, svc, &g_sb);
+        lockdownd_service_descriptor_free(svc);
+        if (se != SBSERVICES_E_SUCCESS || !g_sb) { g_sb = nullptr; return false; }
+    }
+    char* png = nullptr; uint64_t size = 0;
+    sbservices_error_t se = sbservices_get_icon_pngdata(g_sb, bundle.c_str(), &png, &size);
+    if (se != SBSERVICES_E_SUCCESS) {            // connection is unusable after an error
+        sbservices_client_free(g_sb); g_sb = nullptr;
+        trace("icon for %s: sbservices error %d", bundle.c_str(), (int)se);
+    }
+    std::vector<unsigned char>& slot = g_iconPng[bundle];
+    if (se == SBSERVICES_E_SUCCESS && png && size) slot.assign((unsigned char*)png, (unsigned char*)png + size);
+    if (png) free(png);
+    out = slot;
+    return !out.empty();
+}
+
+static HICON png_to_icon(const std::vector<unsigned char>& png, int size)
+{
+    static std::once_flag once; static ULONG_PTR token = 0;
+    std::call_once(once, [] { Gdiplus::GdiplusStartupInput in; Gdiplus::GdiplusStartup(&token, &in, nullptr); });
+    if (!token || png.empty()) return nullptr;
+    IStream* stream = SHCreateMemStream(png.data(), (UINT)png.size());
+    if (!stream) return nullptr;
+    HICON icon = nullptr;
+    {
+        Gdiplus::Bitmap src(stream);
+        if (src.GetLastStatus() == Gdiplus::Ok) {
+            Gdiplus::Bitmap dst(size, size, PixelFormat32bppARGB);
+            Gdiplus::Graphics g(&dst);
+            g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+            g.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHighQuality);
+            g.DrawImage(&src, Gdiplus::Rect(0, 0, size, size), 0, 0, (INT)src.GetWidth(), (INT)src.GetHeight(), Gdiplus::UnitPixel);
+            dst.GetHICON(&icon);
+        }
+    }
+    stream->Release();
+    return icon;
+}
+
 // ---------------------------------------------------------------- exported API
 
 extern "C" {
@@ -1463,6 +1546,47 @@ BOOL __stdcall FsSetTimeW(WCHAR* RemoteName, FILETIME*, FILETIME*, FILETIME* Las
     uint64_t ns = filetime_to_unix_ns(*LastWriteTime);
     std::lock_guard<std::recursive_mutex> l(g_opLock);
     return with_afc(rp, nullptr, [&](afc_client_t afc) { return afc_set_file_time(afc, rp.path.c_str(), ns); }) == AFC_E_SUCCESS;
+}
+
+int __stdcall FsExtractCustomIconW(WCHAR* RemoteName, int ExtractFlags, HICON* TheIcon)
+{
+    if (!RemoteName || !TheIcon) return FS_ICON_USEDEFAULT;
+    bool small = (ExtractFlags & FS_ICONFLAG_SMALL) != 0;
+    RPath rp = parse_path(RemoteName);
+    int siid = -1;
+    switch (rp.mode) {
+    case M_ROOT:      if (rp.path == "/") siid = 8; break;                    // SIID_DRIVEFIXED
+    case M_USER:      if (rp.path == "/") siid = 97; break;                   // SIID_DEVICECELLPHONE
+    case M_PHOTOS:    if (rp.path == "/DCIM") siid = 98; break;               // SIID_DEVICECAMERA
+    case M_PROCESSED: if (rp.path == "/DCIM") siid = 72; break;               // SIID_IMAGEFILES
+    case M_ICLOUD:    if (rp.path == ICLOUD_DIR) siid = 13; break;            // SIID_WORLD
+    case M_APPLIST:   siid = 2; break;                                        // SIID_APPLICATION
+    case M_SETTINGS:  siid = 106; break;                                      // SIID_SETTINGS
+    case M_APP:
+        if (rp.path == "/") {
+            if (!icon_cached(rp.app) && !(ExtractFlags & FS_ICONFLAG_BACKGROUND)) return FS_ICON_DELAYED;
+            std::vector<unsigned char> png;
+            if (app_icon_png(rp.app, png)) {
+                HICON h = png_to_icon(png, GetSystemMetrics(small ? SM_CXSMICON : SM_CXICON));
+                if (h) {
+                    *TheIcon = h;
+                    _snwprintf(RemoteName, MAX_PATH - 1, L"wfx_iOS:app:%hs", rp.app.c_str());
+                    RemoteName[MAX_PATH - 1] = 0;
+                    return FS_ICON_EXTRACTED_DESTROY;
+                }
+            }
+            siid = 2;
+        }
+        break;
+    default: break;
+    }
+    if (siid < 0) return FS_ICON_USEDEFAULT;
+    HICON h = stock_icon(siid, small);
+    if (!h) return FS_ICON_USEDEFAULT;
+    *TheIcon = h;
+    _snwprintf(RemoteName, MAX_PATH - 1, L"wfx_iOS:stock:%d", siid);
+    RemoteName[MAX_PATH - 1] = 0;
+    return FS_ICON_EXTRACTED_DESTROY;
 }
 
 int __stdcall FsExecuteFileW(HWND MainWin, WCHAR* RemoteName, WCHAR* Verb)
