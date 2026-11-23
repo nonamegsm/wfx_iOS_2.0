@@ -1055,6 +1055,21 @@ HANDLE __stdcall FsFindFirstW(WCHAR* Path, WIN32_FIND_DATAW* FindData)
     default: {
         afc_error_t e = with_afc(rp, &err, [&](afc_client_t afc) { return list_dir(afc, rp.path, h.get()); });
         ok = e == AFC_E_SUCCESS;
+        if (!ok && rp.mode == M_APP && rp.path == "/" && e == AFC_E_PERM_DENIED) {
+            // VendDocuments exposes only /Documents; the container root itself cannot be listed.
+            St st;
+            afc_error_t se = with_afc(rp, &err, [&](afc_client_t afc) { return afc_stat(afc, "/Documents", st); });
+            trace("app root not listable, /Documents: %d", (int)se);
+            if (se == AFC_E_SUCCESS) {
+                WIN32_FIND_DATAW fd;
+                fill_find_data(fd, "Documents", st);
+                fd.dwFileAttributes = FILE_ATTRIBUTE_DIRECTORY;
+                h->items.clear();
+                h->items.push_back(fd);
+                ok = true;
+            }
+        }
+        if (!ok) trace("AFC error %d for %s", (int)e, rp.path.c_str());
         if (!ok && err.empty() && e != AFC_E_OBJECT_NOT_FOUND && e != AFC_E_PERM_DENIED && e != AFC_E_READ_ERROR)
             err = L"Could not read the directory (AFC error " + std::to_wstring((int)e) + L")." +
                   (is_connection_error(e) ? afc_probe(rp) : std::wstring());
