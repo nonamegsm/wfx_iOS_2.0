@@ -86,6 +86,17 @@ Only files that are really on the device are listed. With "Optimise Storage" tur
 originals exist only in iCloud and cannot be reached over USB. Files inside a month folder can
 be copied and deleted like any other file; new files cannot be put there.
 
+## Installing and removing applications
+
+- **Install:** copy an `.ipa` file into `Applications`. The package must be signed for the
+  device (developer, ad-hoc or enterprise signing); the device refuses anything else.
+- **Uninstall:** delete the application's folder in `Applications`. The plugin asks for
+  confirmation for each application. Answering *Yes* removes the application together with
+  all its documents and data, and cannot be undone. Answering *No* leaves everything as it
+  is, including the documents.
+
+Deleting files or folders *inside* an application works as before and does not uninstall it.
+
 ## Custom columns
 
 The plugin offers extra file details to Total Commander: `Created`, `Type`, `Hard links`,
@@ -158,6 +169,7 @@ The plugin is plain C (C99 style), one module per job:
 | `src/paths.c` | Total Commander path to device path, application names |
 | `src/listing.c` | directory listings |
 | `src/transfer.c` | download, upload, copy on the device |
+| `src/apps.c` | installing and removing applications |
 | `src/photos.c` | `Photos by month`, reads the device's photo database |
 | `src/icons.c` | folder and application icons |
 | `src/columns.c` | extra file details for custom columns |

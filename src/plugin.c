@@ -64,8 +64,17 @@ int __stdcall FsGetBackgroundFlags(void)
 HANDLE __stdcall FsFindFirstW(WCHAR* path, WIN32_FIND_DATAW* find_data)
 {
     WCHAR err[MSG_MAX] = L"";
-    FindList* list = find_list_create(path, err, MSG_MAX);
+    FindList* list;
+    RemotePath rp;
 
+    /* Deleting an application: after the user's answer there is nothing to list inside it. */
+    parse_path(path, &rp);
+    if (apps_delete_gate(path, &rp) != GATE_PROCEED) {
+        SetLastError(ERROR_NO_MORE_FILES);
+        return INVALID_HANDLE_VALUE;
+    }
+
+    list = find_list_create(path, err, MSG_MAX);
     if (!list) {
         show_error(err);
         SetLastError(ERROR_PATH_NOT_FOUND);
@@ -148,6 +157,7 @@ int __stdcall FsPutFileW(WCHAR* local_name, WCHAR* remote_name, int copy_flags)
 {
     RemotePath rp;
     parse_path(remote_name, &rp);
+    if (apps_is_install_target(remote_name, &rp)) return apps_install(local_name, remote_name, &rp);
     if (!is_afc_mode(rp.mode) || strcmp(rp.path, "/") == 0) return FS_FILE_NOTSUPPORTED;
     return upload_file(local_name, remote_name, copy_flags, &rp);
 }
@@ -235,18 +245,36 @@ int __stdcall FsRenMovFileW(WCHAR* old_name, WCHAR* new_name, BOOL move, BOOL ov
     return result;
 }
 
-BOOL __stdcall FsDeleteFileW(WCHAR* remote_name)
+/* Deletes a file or an empty folder (AFC uses the same call for both). */
+static BOOL delete_entry(const WCHAR* remote_name)
 {
     RemotePath rp;
+
     parse_path(remote_name, &rp);
+    switch (apps_delete_gate(remote_name, &rp)) {       /* uninstalling an application? see apps.c */
+    case GATE_REMOVED: return TRUE;
+    case GATE_REFUSED: return FALSE;
+    default: break;
+    }
     if (!is_afc_mode(rp.mode) || strcmp(rp.path, "/") == 0) return FALSE;
     return afc_run(&rp, op_remove, rp.path, NULL, 0) == AFC_E_SUCCESS;
 }
 
-/* AFC removes an empty folder with the same call as a file. */
+BOOL __stdcall FsDeleteFileW(WCHAR* remote_name)
+{
+    return delete_entry(remote_name);
+}
+
 BOOL __stdcall FsRemoveDirW(WCHAR* remote_name)
 {
-    return FsDeleteFileW(remote_name);
+    return delete_entry(remote_name);
+}
+
+/* Total Commander announces the start and the end of every operation. */
+void __stdcall FsStatusInfoW(WCHAR* remote_dir, int start_or_end, int operation)
+{
+    if (operation == FS_STATUS_OP_DELETE && remote_dir)
+        apps_delete_operation(remote_dir, start_or_end == FS_STATUS_START);
 }
 
 BOOL __stdcall FsMkDirW(WCHAR* path)

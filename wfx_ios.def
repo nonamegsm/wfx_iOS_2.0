@@ -20,3 +20,4 @@ EXPORTS
     FsExtractCustomIconW
     FsContentGetSupportedField
     FsContentGetValueW
+    FsStatusInfoW

@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.6
+
+- Install an application by copying an `.ipa` file into `Applications`.
+- Uninstall an application by deleting its folder in `Applications`; always asks first,
+  before any of the application's documents are touched.
+
 ## 2.5
 
 - `Photos by month`: the whole photo library grouped by the month a picture was taken,

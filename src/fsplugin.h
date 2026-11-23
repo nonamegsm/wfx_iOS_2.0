@@ -27,6 +27,11 @@
 #define FS_ICON_EXTRACTED_DESTROY 2
 #define FS_ICON_DELAYED 3
 
+/* FsStatusInfo: start/end of an operation */
+#define FS_STATUS_START 0
+#define FS_STATUS_END 1
+#define FS_STATUS_OP_DELETE 8
+
 /* Content (custom column) field types and result codes */
 #define ft_nomorefields 0
 #define ft_numeric_32 1

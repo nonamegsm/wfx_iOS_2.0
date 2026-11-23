@@ -14,6 +14,7 @@
  *   paths.c     Total Commander path -> device path, application names
  *   listing.c   directory listings (FsFindFirst / FsFindNext)
  *   transfer.c  download, upload, copy on the device
+ *   apps.c      installing and removing applications
  *   photos.c    "Photos by month" (reads the device's photo database)
  *   icons.c     folder and application icons
  *   columns.c   extra file details for custom columns
@@ -249,6 +250,15 @@ BOOL photos_available(const char* udid);                    /* the device has a 
 BOOL photos_list_months(const char* udid, FindList* list, WCHAR* err, int err_len);
 BOOL photos_list_month(const char* udid, const char* month_text, FindList* list, WCHAR* err, int err_len);
 BOOL photos_resolve(const char* udid, const char* month_text, const char* name, char* real, int real_len);
+
+/* ----------------------------------------------------------------- apps.c */
+
+typedef enum { GATE_PROCEED, GATE_REMOVED, GATE_REFUSED } AppGate;
+
+void    apps_delete_operation(const WCHAR* remote_dir, BOOL starting);
+AppGate apps_delete_gate(const WCHAR* tc_path, const RemotePath* rp);
+BOOL    apps_is_install_target(const WCHAR* tc_path, const RemotePath* rp);
+int     apps_install(const WCHAR* local_name, const WCHAR* remote_name, const RemotePath* target);
 
 /* -------------------------------------------------------------- columns.c */
 

@@ -21,6 +21,7 @@ add_library(wfx_iOS SHARED
     src/paths.c
     src/listing.c
     src/transfer.c
+    src/apps.c
     src/photos.c
     src/icons.c
     src/columns.c
