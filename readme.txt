@@ -1,5 +1,5 @@
-wfx_iOS 2.0 - iOS file system plugin for Total Commander
-=========================================================
+wfx_iOS 2 - iOS file system plugin for Total Commander
+=======================================================
 
 An update of the wfx_iOS 1.3 plugin (2017) by Domo, the original author.
 The idea, folder layout and features are his work. This version only brings

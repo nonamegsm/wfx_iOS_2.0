@@ -1,0 +1,357 @@
+/*
+ * listing.c - directory listings: the plugin root, the application list and
+ *             real folders on the device.
+ *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ */
+#include "wfx_ios.h"
+
+/* -------------------------------------------------------------- find list */
+
+void find_list_free(FindList* list)
+{
+    if (!list) return;
+    free(list->items);
+    free(list);
+}
+
+/* Appends one entry; the array grows as needed. */
+static void find_list_add(FindList* list, const WIN32_FIND_DATAW* entry)
+{
+    if (list->count == list->capacity) {
+        int capacity = list->capacity ? list->capacity * 2 : 64;
+        WIN32_FIND_DATAW* grown = (WIN32_FIND_DATAW*)realloc(list->items, capacity * sizeof(WIN32_FIND_DATAW));
+        if (!grown) return;
+        list->items = grown;
+        list->capacity = capacity;
+    }
+    list->items[list->count++] = *entry;
+}
+
+/* A folder that exists only in the plugin (no date, no size). */
+static void add_virtual_folder(FindList* list, const WCHAR* name)
+{
+    WIN32_FIND_DATAW entry;
+    memset(&entry, 0, sizeof(entry));
+    copy_wide(entry.cFileName, MAX_PATH, name);
+    entry.dwFileAttributes = FILE_ATTRIBUTE_DIRECTORY;
+    entry.ftLastWriteTime = unix_ns_to_filetime(0);
+    find_list_add(list, &entry);
+}
+
+/* An entry for a real file or folder on the device. */
+static void add_device_entry(FindList* list, const char* name, const FileStat* st)
+{
+    WIN32_FIND_DATAW entry;
+    memset(&entry, 0, sizeof(entry));
+    utf8_to_wide(name, entry.cFileName, MAX_PATH);
+    entry.dwFileAttributes = st->is_dir ? FILE_ATTRIBUTE_DIRECTORY : FILE_ATTRIBUTE_NORMAL;
+    if (st->is_link)    entry.dwFileAttributes |= FILE_ATTRIBUTE_REPARSE_POINT;
+    if (name[0] == '.') entry.dwFileAttributes |= FILE_ATTRIBUTE_HIDDEN;
+    if (!st->is_dir) {
+        entry.nFileSizeLow = (DWORD)st->size;
+        entry.nFileSizeHigh = (DWORD)(st->size >> 32);
+    }
+    entry.ftLastWriteTime = unix_ns_to_filetime(st->mtime);
+    entry.ftCreationTime = unix_ns_to_filetime(st->birth);
+    find_list_add(list, &entry);
+}
+
+/* ------------------------------------------------------------ plugin root */
+
+static afc_error_t op_stat(afc_client_t afc, void* arg);    /* defined below */
+
+typedef struct {
+    const char* path;
+    FileStat*   st;
+    BOOL        follow_links;
+} StatArgs;
+
+static void list_top(FindList* list)
+{
+    RemotePath user;
+    FileStat st;
+    StatArgs args;
+    WIN32_FIND_DATAW entry;
+
+    if (device_has_afc2()) add_virtual_folder(list, L"Root");
+    add_virtual_folder(list, L"User");
+    add_virtual_folder(list, L"Photos");
+    add_virtual_folder(list, L"Processed photos");
+
+    /* Photos that came from iCloud Photos are stored outside /DCIM; show them when present. */
+    parse_path(L"\\User", &user);
+    args.path = ICLOUD_DIR;
+    args.st = &st;
+    args.follow_links = FALSE;
+    if (afc_run(&user, op_stat, &args, NULL, 0) == AFC_E_SUCCESS && st.is_dir)
+        add_virtual_folder(list, L"iCloud photos");
+
+    add_virtual_folder(list, L"Applications");
+
+    /* Pseudo file: Enter on it opens the settings dialog. */
+    memset(&entry, 0, sizeof(entry));
+    copy_wide(entry.cFileName, MAX_PATH, SETTINGS_ITEM);
+    entry.dwFileAttributes = FILE_ATTRIBUTE_NORMAL;
+    entry.ftLastWriteTime = unix_ns_to_filetime(0);
+    find_list_add(list, &entry);
+}
+
+/* ------------------------------------------------------------ applications */
+
+/* Reads one text value of a dictionary; 'dst' becomes empty when it is missing. */
+static void dict_get_text(plist_t dict, const char* key, char* dst, int dst_len)
+{
+    plist_t node = plist_dict_get_item(dict, key);
+    char* value = NULL;
+
+    dst[0] = 0;
+    if (!node || plist_get_node_type(node) != PLIST_STRING) return;
+    plist_get_string_val(node, &value);
+    if (value) {
+        copy_text(dst, dst_len, value);
+        plist_mem_free(value);
+    }
+}
+
+/* Makes an application's display name usable as a folder name. */
+static void make_folder_name(const char* display_name, WCHAR* dst, int dst_len)
+{
+    int len, i;
+
+    utf8_to_wide(display_name, dst, dst_len);
+    len = (int)wcslen(dst);
+    for (i = 0; i < len; i++)
+        if (dst[i] < 32 || wcschr(L"\\/:*?\"<>|", dst[i])) dst[i] = L'_';
+    while (len > 0 && (dst[len - 1] == L' ' || dst[len - 1] == L'.')) dst[--len] = 0;
+    while (dst[0] == L' ') memmove(dst, dst + 1, wcslen(dst) * sizeof(WCHAR));
+}
+
+/* Asks installation_proxy for the user-installed applications. Returns a plist array or NULL. */
+static plist_t browse_applications(Device* device, WCHAR* err, int err_len)
+{
+    lockdownd_service_descriptor_t service = NULL;
+    instproxy_client_t proxy = NULL;
+    plist_t options, apps = NULL;
+    instproxy_error_t e;
+
+    if (!start_service(device, INSTPROXY_SERVICE_NAME, &service, err, err_len)) return NULL;
+    e = instproxy_client_new(device->dev, service, &proxy);
+    lockdownd_service_descriptor_free(service);
+    if (e != INSTPROXY_E_SUCCESS || !proxy) {
+        if (err) copy_wide(err, err_len, L"Could not connect to installation_proxy.");
+        return NULL;
+    }
+
+    options = instproxy_client_options_new();
+    instproxy_client_options_add(options, "ApplicationType", "User", NULL);
+    instproxy_client_options_set_return_attributes(options, "CFBundleIdentifier", "UIFileSharingEnabled",
+                                                   "CFBundleDisplayName", "CFBundleName", NULL);
+    e = instproxy_browse(proxy, options, &apps);
+    instproxy_client_options_free(options);
+    instproxy_client_free(proxy);
+
+    if (e != INSTPROXY_E_SUCCESS || !apps) {
+        if (err) copy_wide(err, err_len, L"Could not read the list of applications.");
+        return NULL;
+    }
+    return apps;
+}
+
+/* Sorts the entries of a list by name, ignoring case. */
+static int compare_entries(const void* a, const void* b)
+{
+    return _wcsicmp(((const WIN32_FIND_DATAW*)a)->cFileName, ((const WIN32_FIND_DATAW*)b)->cFileName);
+}
+
+/*
+ * Reads the applications from the device, rebuilds the name table and, when
+ * 'list' is given, adds one folder per application to it.
+ *
+ * From iOS 8 on only applications with file sharing can be opened, so only
+ * those are listed (ShowAllApps=1 lists all of them).
+ */
+static BOOL read_applications(FindList* list, WCHAR* err, int err_len)
+{
+    typedef struct { WCHAR shown[APP_ID_MAX]; char bundle[APP_ID_MAX]; BOOL duplicate; } Found;
+    Device* device = NULL;
+    plist_t apps = NULL;
+    Found* found;
+    int found_count = 0;
+    BOOL list_all, use_names;
+    uint32_t total, n;
+    int attempt, i, k;
+
+    /* Second attempt looks the device up again (it may have been replugged). */
+    for (attempt = 0; attempt < 2 && !apps; attempt++) {
+        device = device_acquire(attempt == 1, err, err_len);
+        if (!device) continue;
+        apps = browse_applications(device, err, err_len);
+        if (!apps) { device_release(device); device = NULL; }
+    }
+    if (!apps) return FALSE;
+
+    list_all = device->ios_major < 8 || ini_get_bool("ShowAllApps", FALSE);
+    use_names = ini_get_bool("AppNames", TRUE);
+    device_release(device);
+
+    total = plist_array_get_size(apps);
+    found = (Found*)calloc(total ? total : 1, sizeof(Found));
+
+    for (n = 0; n < total && found; n++) {
+        plist_t app = plist_array_get_item(apps, n);
+        plist_t sharing_node;
+        char bundle[APP_ID_MAX], display[APP_ID_MAX];
+        uint8_t sharing = 0;
+
+        if (!app || plist_get_node_type(app) != PLIST_DICT) continue;
+        dict_get_text(app, "CFBundleIdentifier", bundle, sizeof(bundle));
+        if (!bundle[0]) continue;
+        dict_get_text(app, "CFBundleDisplayName", display, sizeof(display));
+        if (!display[0]) dict_get_text(app, "CFBundleName", display, sizeof(display));
+
+        sharing_node = plist_dict_get_item(app, "UIFileSharingEnabled");
+        if (sharing_node && plist_get_node_type(sharing_node) == PLIST_BOOLEAN)
+            plist_get_bool_val(sharing_node, &sharing);
+        log_line("app %s (%s), file sharing %d", bundle, display, (int)sharing);
+        if (!list_all && !sharing) continue;
+
+        if (use_names) make_folder_name(display, found[found_count].shown, APP_ID_MAX);
+        if (!found[found_count].shown[0]) utf8_to_wide(bundle, found[found_count].shown, APP_ID_MAX);
+        copy_text(found[found_count].bundle, APP_ID_MAX, bundle);
+        found_count++;
+    }
+    plist_free(apps);
+    if (!found) return FALSE;
+
+    /* Two applications with the same name: add the bundle id to both.
+       Mark first and rename afterwards, so that all comparisons use the original names. */
+    for (i = 0; i < found_count; i++)
+        for (k = 0; k < found_count; k++)
+            if (k != i && _wcsicmp(found[i].shown, found[k].shown) == 0) found[i].duplicate = TRUE;
+    for (i = 0; i < found_count; i++) {
+        if (found[i].duplicate) {
+            WCHAR id[APP_ID_MAX];
+            utf8_to_wide(found[i].bundle, id, APP_ID_MAX);
+            append_wide(found[i].shown, APP_ID_MAX, L" (%s)", id);
+        }
+    }
+
+    apps_table_clear();
+    for (i = 0; i < found_count; i++) {
+        apps_table_add(found[i].shown, found[i].bundle);
+        if (list) add_virtual_folder(list, found[i].shown);
+    }
+    apps_table_done();
+    free(found);
+
+    if (list && list->count > 1)
+        qsort(list->items, list->count, sizeof(WIN32_FIND_DATAW), compare_entries);
+    return TRUE;
+}
+
+BOOL apps_load(WCHAR* err, int err_len)
+{
+    return read_applications(NULL, err, err_len);
+}
+
+/* ---------------------------------------------------------- device folders */
+
+static afc_error_t op_stat(afc_client_t afc, void* arg)
+{
+    StatArgs* args = (StatArgs*)arg;
+    return args->follow_links ? afc_stat_follow(afc, args->path, args->st)
+                              : afc_stat(afc, args->path, args->st);
+}
+
+typedef struct {
+    const char* path;
+    FindList*   list;
+} ListArgs;
+
+/* Reads one folder: the names first, then the attributes of every entry. */
+static afc_error_t op_list_folder(afc_client_t afc, void* arg)
+{
+    ListArgs* args = (ListArgs*)arg;
+    char** names = NULL;
+    afc_error_t e;
+    int i;
+
+    e = afc_read_directory(afc, args->path, &names);
+    if (e != AFC_E_SUCCESS) return e;
+
+    args->list->count = 0;                  /* a repeated attempt starts from scratch */
+    for (i = 0; names && names[i]; i++) {
+        char full[AFC_PATH_MAX];
+        FileStat st;
+
+        if (strcmp(names[i], ".") == 0 || strcmp(names[i], "..") == 0) continue;
+        path_join(args->path, names[i], full, sizeof(full));
+        e = afc_stat_follow(afc, full, &st);
+        if (afc_is_connection_error(e)) { afc_dictionary_free(names); return e; }
+        add_device_entry(args->list, names[i], &st);    /* unreadable entries are still listed */
+    }
+    if (names) afc_dictionary_free(names);
+    return AFC_E_SUCCESS;
+}
+
+static BOOL list_folder(const RemotePath* rp, FindList* list, WCHAR* err, int err_len)
+{
+    ListArgs args;
+    afc_error_t e;
+
+    args.path = rp->path;
+    args.list = list;
+    e = afc_run(rp, op_list_folder, &args, err, err_len);
+    if (e == AFC_E_SUCCESS) return TRUE;
+
+    /* An application opened with VendDocuments exposes only /Documents;
+       its top folder cannot be listed. Show that one folder instead. */
+    if (rp->mode == M_APP && strcmp(rp->path, "/") == 0 && e == AFC_E_PERM_DENIED) {
+        FileStat st;
+        StatArgs stat_args;
+        stat_args.path = "/Documents";
+        stat_args.st = &st;
+        stat_args.follow_links = TRUE;
+        if (afc_run(rp, op_stat, &stat_args, err, err_len) == AFC_E_SUCCESS) {
+            st.is_dir = TRUE;
+            list->count = 0;
+            add_device_entry(list, "Documents", &st);
+            return TRUE;
+        }
+    }
+
+    log_line("AFC error %d for %s", (int)e, rp->path);
+    if (err && err[0] == 0 && e != AFC_E_OBJECT_NOT_FOUND && e != AFC_E_PERM_DENIED && e != AFC_E_READ_ERROR)
+        format_wide(err, err_len, L"Could not read the directory (AFC error %d).", (int)e);
+    return FALSE;
+}
+
+/* --------------------------------------------------------------- dispatch */
+
+/* Builds the listing of one Total Commander path. NULL means "cannot be read". */
+FindList* find_list_create(const WCHAR* tc_path, WCHAR* err, int err_len)
+{
+    FindList* list = (FindList*)calloc(1, sizeof(FindList));
+    RemotePath rp;
+    char utf8[TC_PATH_MAX * 3];
+    BOOL ok = FALSE;
+
+    if (!list) return NULL;
+    if (err && err_len > 0) err[0] = 0;
+    parse_path(tc_path, &rp);
+
+    switch (rp.mode) {
+    case M_TOP:     list_top(list); ok = TRUE; break;
+    case M_APPLIST: ok = read_applications(list, err, err_len); break;
+    case M_INVALID:
+    case M_SETTINGS: break;
+    default:        ok = list_folder(&rp, list, err, err_len); break;
+    }
+
+    wide_to_utf8(tc_path, utf8, sizeof(utf8));
+    log_line("list %s -> %s (%d entries)", utf8, ok ? "ok" : "FAILED", list->count);
+
+    if (!ok) { find_list_free(list); return NULL; }
+    return list;
+}

@@ -1,5 +1,5 @@
 [plugininstall]
-description=iOS Filesystem Browser 2.0
+description=iOS Filesystem Browser
 type=wfx
 file=wfx_iOS.wfx
 file=readme.txt

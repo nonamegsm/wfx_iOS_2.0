@@ -1,0 +1,15 @@
+# Changelog
+
+## 2.1
+
+- Source rewritten as plain, commented C (C99 style), split into modules.
+  No change in behaviour is intended.
+- Application icons are scaled with the Windows Imaging Component.
+- The version number now comes from `version.txt`.
+
+## 2.0
+
+- First update of wfx_iOS 1.3 by Domo for current iOS / iPadOS:
+  current libimobiledevice and OpenSSL 3, application names and icons,
+  `iCloud photos` folder, settings dialog, setup program, resume for transfers,
+  no hang when the device is unplugged.

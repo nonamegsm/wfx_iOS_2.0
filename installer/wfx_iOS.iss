@@ -1,13 +1,16 @@
-; Inno Setup script for wfx_iOS 2.0 (Total Commander iOS file-system plugin).
+; Inno Setup script for wfx_iOS (Total Commander iOS file-system plugin).
 ; Built by GitHub Actions: ISCC installer\wfx_iOS.iss  (expects the two plugin files in installer\bin)
 
-#define AppVer "2.0"
+; The version is passed by the build:  ISCC /DAppVer=2.1 installer\wfx_iOS.iss
+#ifndef AppVer
+  #define AppVer "0.0"
+#endif
 
 [Setup]
 AppId={{6C0C7C5E-3B0B-4B55-9C7B-7A1F0E5D2A10}
 AppName=wfx_iOS (Total Commander iOS plugin)
 AppVersion={#AppVer}
-AppPublisher=wfx_iOS 2.0 - update of wfx_iOS 1.3 by Domo
+AppPublisher=wfx_iOS - update of wfx_iOS 1.3 by Domo
 AppPublisherURL=https://github.com/nonamegsm/wfx_iOS_2.0
 DefaultDirName={code:PluginDir}
 DirExistsWarning=no

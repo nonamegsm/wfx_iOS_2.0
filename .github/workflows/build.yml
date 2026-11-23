@@ -74,12 +74,14 @@ jobs:
           Copy-Item artifacts\wfx_iOS-x64\wfx_iOS.wfx64, artifacts\wfx_iOS-x86\wfx_iOS.wfx installer\bin\
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress }
-          & $iscc installer\wfx_iOS.iss
+          $ver = (Get-Content version.txt -TotalCount 1).Trim()
+          & $iscc "/DAppVer=$ver" installer\wfx_iOS.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Copy-Item "installer\out\wfx_iOS_${ver}_setup.exe" installer\out\wfx_iOS_setup.exe
       - uses: actions/upload-artifact@v4
         with:
           name: wfx_iOS-setup
-          path: installer/out/wfx_iOS_2.0_setup.exe
+          path: installer/out/wfx_iOS_setup.exe
           if-no-files-found: error
 
   package:
@@ -92,16 +94,19 @@ jobs:
           path: artifacts
       - name: Assemble plugin zip
         run: |
+          VER=$(head -n1 version.txt | tr -d '[:space:]')
+          echo "VER=$VER" >> "$GITHUB_ENV"
           mkdir dist
-          cp artifacts/wfx_iOS-x64/wfx_iOS.wfx64 artifacts/wfx_iOS-x86/wfx_iOS.wfx pluginst.inf readme.txt LICENSE dist/
-          cd dist && zip -9 ../wfx_iOS_2.0.zip *
-          cp ../artifacts/wfx_iOS-setup/wfx_iOS_2.0_setup.exe .
+          cp artifacts/wfx_iOS-x64/wfx_iOS.wfx64 artifacts/wfx_iOS-x86/wfx_iOS.wfx pluginst.inf readme.txt LICENSE version.txt dist/
+          (cd dist && zip -9 "../wfx_iOS_${VER}.zip" wfx_iOS.wfx64 wfx_iOS.wfx pluginst.inf readme.txt LICENSE)
+          cp artifacts/wfx_iOS-setup/wfx_iOS_setup.exe "dist/wfx_iOS_${VER}_setup.exe"
+          cp "wfx_iOS_${VER}.zip" dist/
       - uses: actions/upload-artifact@v4
         with:
-          name: wfx_iOS_2.0
+          name: wfx_iOS-package
           path: |
-            wfx_iOS_2.0.zip
-            dist/wfx_iOS_2.0_setup.exe
+            dist/wfx_iOS_*.zip
+            dist/wfx_iOS_*_setup.exe
       - name: Publish latest build to the dist branch
         if: github.ref == 'refs/heads/main'
         run: |
@@ -118,5 +123,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           PRE=""; case "$GITHUB_REF_NAME" in *-*) PRE="--prerelease";; esac
-          gh release create "$GITHUB_REF_NAME" wfx_iOS_2.0.zip dist/wfx_iOS_2.0_setup.exe $PRE --title "wfx_iOS ${GITHUB_REF_NAME#v}" \
+          gh release create "$GITHUB_REF_NAME" "dist/wfx_iOS_${VER}.zip" "dist/wfx_iOS_${VER}_setup.exe" $PRE --title "wfx_iOS ${GITHUB_REF_NAME#v}" \
             --notes "Update of wfx_iOS 1.3 by Domo (original author) for modern iOS. Built by GitHub Actions with MSVC for x86 and x64. Beta: not yet verified on a device - please report results."

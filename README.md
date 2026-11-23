@@ -1,4 +1,4 @@
-# wfx_iOS 2.0
+# wfx_iOS 2
 
 Total Commander file-system plugin for browsing iPhone / iPad files.
 
@@ -31,7 +31,7 @@ libimobiledevice-glue and [OpenSSL](https://www.openssl.org/).
 
 ### Setup program (recommended)
 
-Download `wfx_iOS_2.0_setup.exe` from [Releases](../../releases), or the latest build from
+Download `wfx_iOS_<version>_setup.exe` from [Releases](../../releases), or the latest build from
 the [`dist` branch](../../tree/dist). Close Total Commander and run it. It:
 
 1. finds Total Commander and installs both plugin files (32- and 64-bit); an existing
@@ -44,7 +44,7 @@ The setup program is not code-signed, so Windows SmartScreen may ask for confirm
 
 ### Manual
 
-Open `wfx_iOS_2.0.zip` in Total Commander and accept the install prompt (no panel may be
+Open `wfx_iOS_<version>.zip` in Total Commander and accept the install prompt (no panel may be
 inside the plugin at that moment). Install Apple's part yourself from an elevated
 PowerShell, or install iTunes from apple.com:
 
@@ -117,9 +117,28 @@ identifiers and file names, so check it before posting.
 
 Run `build.bat` (Visual Studio with C++ and git required); dependencies come from vcpkg.
 The `ports/` folder holds a patched copy of vcpkg's libimobiledevice port and is required:
-the stock port builds an AFC implementation that does not work under MSVC (wrong byte order).
+the stock port builds an AFC implementation that does not work under MSVC (wrong byte order)
+and can spin forever on a closed connection.
 Every push is built by GitHub Actions for x86 and x64, including the setup program
 (`installer/wfx_iOS.iss`, Inno Setup); the result is published to the `dist` branch.
+
+The version number is the single line in `version.txt`; see [CHANGELOG.md](CHANGELOG.md).
+
+## Source layout
+
+The plugin is plain C (C99 style), one module per job:
+
+| File | Job |
+|---|---|
+| `src/plugin.c` | the functions Total Commander calls (`Fs...`) |
+| `src/device.c` | device handle, lockdown, service start, AFC connections |
+| `src/paths.c` | Total Commander path to device path, application names |
+| `src/listing.c` | directory listings |
+| `src/transfer.c` | download, upload, copy on the device |
+| `src/icons.c` | folder and application icons |
+| `src/dialogs.c` | settings dialog, file properties |
+| `src/util.c` | strings, time, ini file, log file, error box |
+| `src/wfx_ios.h` | shared declarations and an overview |
 
 ## Status
 
