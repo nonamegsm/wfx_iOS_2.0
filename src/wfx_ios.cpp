@@ -165,6 +165,9 @@ struct RPath {
     std::string path;    // AFC path, UTF-8, always starts with '/'
 };
 
+// Folder name shown under \Applications -> bundle id.
+static std::string resolve_app(const std::wstring& shown);
+
 static RPath parse_path(const WCHAR* remote)
 {
     RPath r;
@@ -189,7 +192,7 @@ static RPath parse_path(const WCHAR* remote)
         rest.erase(0, 1);
         size_t s2 = rest.find(L'\\');
         r.mode = M_APP;
-        r.app = to_utf8(rest.substr(0, s2).c_str());
+        r.app = resolve_app(rest.substr(0, s2));
         rest = s2 == std::wstring::npos ? L"" : rest.substr(s2);
     } else return r;   // M_INVALID
 
@@ -598,6 +601,57 @@ static bool list_top(FindHandle* h)
     return true;
 }
 
+static std::mutex g_appLock;
+static std::map<std::wstring, std::string> g_appNames;     // lower-case shown name -> bundle id
+static bool g_appsLoaded = false;
+
+static std::wstring lower(std::wstring s)
+{
+    if (!s.empty()) CharLowerBuffW(&s[0], (DWORD)s.size());
+    return s;
+}
+
+static std::string plist_dict_string(plist_t dict, const char* key)
+{
+    std::string out;
+    plist_t p = plist_dict_get_item(dict, key);
+    if (p && plist_get_node_type(p) == PLIST_STRING) {
+        char* v = nullptr; plist_get_string_val(p, &v);
+        if (v) { out = v; plist_mem_free(v); }
+    }
+    return out;
+}
+
+// Turns an app's display name into something usable as a folder name.
+static std::wstring folder_name(const std::string& display)
+{
+    std::wstring w = to_wide(display);
+    for (auto& c : w) if (c < 32 || wcschr(L"\\/:*?\"<>|", c)) c = L'_';
+    while (!w.empty() && (w.back() == L' ' || w.back() == L'.')) w.pop_back();
+    while (!w.empty() && w.front() == L' ') w.erase(0, 1);
+    if (w.size() > 120) w.resize(120);
+    return w;
+}
+
+static bool list_apps(FindHandle* h, std::wstring* err);
+
+static std::string resolve_app(const std::wstring& shown)
+{
+    for (int pass = 0; pass < 2; pass++) {
+        {
+            std::lock_guard<std::mutex> l(g_appLock);
+            auto it = g_appNames.find(lower(shown));
+            if (it != g_appNames.end()) return it->second;
+            if (g_appsLoaded) break;
+        }
+        // Panel restored inside an app before the list was ever read: load it once.
+        FindHandle tmp; std::wstring ignored;
+        std::lock_guard<std::recursive_mutex> l(g_opLock);
+        if (!list_apps(&tmp, &ignored)) break;
+    }
+    return to_utf8(shown.c_str());     // not a known name: treat it as a bundle id
+}
+
 static bool list_apps(FindHandle* h, std::wstring* err)
 {
     for (int attempt = 0; attempt < 2; attempt++) {
@@ -612,7 +666,8 @@ static bool list_apps(FindHandle* h, std::wstring* err)
 
         plist_t opts = instproxy_client_options_new();
         instproxy_client_options_add(opts, "ApplicationType", "User", NULL);
-        instproxy_client_options_set_return_attributes(opts, "CFBundleIdentifier", "UIFileSharingEnabled", NULL);
+        instproxy_client_options_set_return_attributes(opts, "CFBundleIdentifier", "UIFileSharingEnabled",
+                                                       "CFBundleDisplayName", "CFBundleName", NULL);
         plist_t apps = nullptr;
         ie = instproxy_browse(ipc, opts, &apps);
         instproxy_client_options_free(opts);
@@ -620,6 +675,8 @@ static bool list_apps(FindHandle* h, std::wstring* err)
         if (ie != INSTPROXY_E_SUCCESS || !apps) { if (err) *err = L"Could not read the list of applications."; continue; }
 
         bool all = d->iosMajor < 8 || ini_bool("ShowAllApps", false);
+        bool friendly = ini_bool("AppNames", true);
+        std::vector<std::pair<std::wstring, std::string>> found;      // shown name, bundle id
         uint32_t n = plist_array_get_size(apps);
         for (uint32_t i = 0; i < n; i++) {
             plist_t app = plist_array_get_item(apps, i);
@@ -631,14 +688,34 @@ static bool list_apps(FindHandle* h, std::wstring* err)
             char* id = nullptr;
             if (pid) plist_get_string_val(pid, &id);
             if (!id) continue;
-            trace("app %s, file sharing %d", id, (int)sharing);
-            if (!all && !sharing) { plist_mem_free(id); continue; }
-            WIN32_FIND_DATAW fd;
-            fill_virtual_dir(fd, to_wide(id));
-            h->items.push_back(fd);
+            std::string display = plist_dict_string(app, "CFBundleDisplayName");
+            if (display.empty()) display = plist_dict_string(app, "CFBundleName");
+            trace("app %s (%s), file sharing %d", id, display.c_str(), (int)sharing);
+            std::string bundle = id;
             plist_mem_free(id);
+            if (!all && !sharing) continue;
+            std::wstring shown = friendly ? folder_name(display) : std::wstring();
+            if (shown.empty()) shown = to_wide(bundle);
+            found.push_back(std::make_pair(shown, bundle));
         }
         plist_free(apps);
+
+        // Two apps with the same display name get the bundle id appended.
+        std::map<std::wstring, int> count;
+        for (auto& f : found) count[lower(f.first)]++;
+        {
+            std::lock_guard<std::mutex> l(g_appLock);
+            g_appNames.clear();
+            for (auto& f : found) {
+                if (count[lower(f.first)] > 1) f.first += L" (" + to_wide(f.second) + L")";
+                g_appNames[lower(f.first)] = f.second;
+                g_appNames[lower(to_wide(f.second))] = f.second;      // bundle id keeps working too
+                WIN32_FIND_DATAW fd;
+                fill_virtual_dir(fd, f.first);
+                h->items.push_back(fd);
+            }
+            g_appsLoaded = true;
+        }
         std::sort(h->items.begin(), h->items.end(), [](const WIN32_FIND_DATAW& a, const WIN32_FIND_DATAW& b) {
             return _wcsicmp(a.cFileName, b.cFileName) < 0;
         });
