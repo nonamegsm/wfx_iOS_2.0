@@ -76,6 +76,7 @@
 #define INFO_ITEM       L"Device information"  /* pseudo file in a device's root */
 #define ICLOUD_DIR      "/PhotoData/CPLAssets"
 #define MONTHS_FOLDER   L"Photos by month"
+#define HOME_FOLDER     L"Home screen"     /* the icons of the device as folders */
 
 #define AFC_PATH_MAX    2048               /* device path, UTF-8 */
 #define TC_PATH_MAX     1024               /* Total Commander path, UTF-16 */
@@ -204,6 +205,9 @@ typedef enum {
     S_YES,
     S_NO,
     S_ERR_SAVE,
+    S_ERR_HOME_READ,
+    S_ERR_HOME_WRITE,
+    S_ERR_HOME_FILE,
     S_COUNT
 } StringId;
 
@@ -224,7 +228,8 @@ typedef enum {
     M_APPLIST,      /* \Applications */
     M_APP,          /* inside one application */
     M_SETTINGS,     /* \Settings */
-    M_INFO          /* \Device information */
+    M_INFO,         /* \Device information */
+    M_HOME          /* \Home screen\...: path is "/Page 01/Folder/Item" */
 } PathMode;
 
 typedef struct {
@@ -365,6 +370,17 @@ int  columns_get_value(const WCHAR* file_name, int field_index, void* value, int
 
 void show_settings(HWND parent);
 void show_device_info(HWND parent, const char* udid);     /* info.c */
+
+/* home.c - the home screen layout as folders */
+void home_init(void);                                       /* called once from DllMain */
+BOOL home_list(const RemotePath* rp, FindList* list, WCHAR* err, int err_len);
+int  home_move(const RemotePath* src, const RemotePath* dst);                   /* FS_FILE_* */
+BOOL home_make_folder(const RemotePath* rp);
+BOOL home_remove_folder(const RemotePath* rp);
+BOOL home_is_layout_file(const RemotePath* rp);             /* "\Home screen\<name>.plist" */
+int  home_download_layout(const RemotePath* rp, const WCHAR* local_name, int copy_flags);
+int  home_upload_layout(const WCHAR* local_name, const RemotePath* rp);
+BOOL home_item_bundle(const RemotePath* rp, char* bundle, int bundle_len);
 void show_file_properties(HWND parent, const WCHAR* remote_name, const RemotePath* rp);
 
 #endif /* WFX_IOS_H */

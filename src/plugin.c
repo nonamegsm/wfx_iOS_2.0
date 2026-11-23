@@ -19,6 +19,7 @@ BOOL APIENTRY DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved)
         icons_init();
         columns_init();
         photos_init();
+        home_init();
     }
     return TRUE;
 }
@@ -150,6 +151,8 @@ int __stdcall FsGetFileW(WCHAR* remote_name, WCHAR* local_name, int copy_flags, 
     RemotePath rp;
     (void)info;
     parse_path(remote_name, &rp);
+    if (rp.mode == M_HOME)
+        return home_is_layout_file(&rp) ? home_download_layout(&rp, local_name, copy_flags) : FS_FILE_NOTSUPPORTED;
     if (!is_afc_mode(rp.mode)) return FS_FILE_NOTSUPPORTED;
     return download_file(remote_name, local_name, copy_flags, &rp);
 }
@@ -159,6 +162,12 @@ int __stdcall FsPutFileW(WCHAR* local_name, WCHAR* remote_name, int copy_flags)
     RemotePath rp;
     parse_path(remote_name, &rp);
     if (apps_is_install_target(remote_name, &rp)) return apps_install(local_name, remote_name, &rp);
+    if (rp.mode == M_HOME) {
+        /* A saved layout file put back; Total Commander asks before "layout.plist" is replaced. */
+        if (!home_is_layout_file(&rp)) return FS_FILE_NOTSUPPORTED;
+        if (!(copy_flags & FS_COPYFLAGS_OVERWRITE) && _stricmp(rp.path, "/layout.plist") == 0) return FS_FILE_EXISTS;
+        return home_upload_layout(local_name, &rp);
+    }
     if (!is_afc_mode(rp.mode) || strcmp(rp.path, "/") == 0) return FS_FILE_NOTSUPPORTED;
     return upload_file(local_name, remote_name, copy_flags, &rp);
 }
@@ -210,6 +219,7 @@ int __stdcall FsRenMovFileW(WCHAR* old_name, WCHAR* new_name, BOOL move, BOOL ov
     (void)info;
     parse_path(old_name, &src);
     parse_path(new_name, &dst);
+    if (src.mode == M_HOME && dst.mode == M_HOME) return move ? home_move(&src, &dst) : FS_FILE_NOTSUPPORTED;
     if (!is_afc_mode(src.mode) || !is_afc_mode(dst.mode)) return FS_FILE_NOTSUPPORTED;
     if (strcmp(src.path, "/") == 0 || strcmp(dst.path, "/") == 0) return FS_FILE_NOTSUPPORTED;
 
@@ -268,6 +278,9 @@ BOOL __stdcall FsDeleteFileW(WCHAR* remote_name)
 
 BOOL __stdcall FsRemoveDirW(WCHAR* remote_name)
 {
+    RemotePath rp;
+    parse_path(remote_name, &rp);
+    if (rp.mode == M_HOME) return home_remove_folder(&rp);
     return delete_entry(remote_name);
 }
 
@@ -282,6 +295,7 @@ BOOL __stdcall FsMkDirW(WCHAR* path)
 {
     RemotePath rp;
     parse_path(path, &rp);
+    if (rp.mode == M_HOME) return home_make_folder(&rp);
     if (!is_afc_mode(rp.mode) || strcmp(rp.path, "/") == 0) return FALSE;
     return afc_run(&rp, op_make_directory, rp.path, NULL, 0) == AFC_E_SUCCESS;
 }
@@ -312,6 +326,7 @@ int __stdcall FsExecuteFileW(HWND main_window, WCHAR* remote_name, WCHAR* verb)
     if (_wcsicmp(verb, L"open") == 0) {
         if (rp.mode == M_SETTINGS) { show_settings(main_window); return FS_EXEC_OK; }
         if (rp.mode == M_INFO)     { show_device_info(main_window, rp.udid); return FS_EXEC_OK; }
+        if (rp.mode == M_HOME && !home_is_layout_file(&rp)) return FS_EXEC_OK;     /* an application: nothing to open */
         return FS_EXEC_YOURSELF;                    /* Total Commander downloads and opens the file */
     }
     if (_wcsnicmp(verb, L"properties", 10) == 0) {

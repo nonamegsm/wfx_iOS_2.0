@@ -204,7 +204,7 @@ BOOL is_reserved_name(const WCHAR* name)
 {
     static const WCHAR* reserved[] = {
         L"Root", L"User", L"Photos", L"Processed photos", L"iCloud photos", MONTHS_FOLDER,
-        L"Applications", SETTINGS_ITEM, INFO_ITEM
+        L"Applications", HOME_FOLDER, SETTINGS_ITEM, INFO_ITEM
     };
     int i;
     for (i = 0; i < (int)(sizeof(reserved) / sizeof(reserved[0])); i++)
@@ -300,6 +300,7 @@ void parse_path(const WCHAR* tc_path, RemotePath* out)
     else if (wcscmp(first, L"Processed photos") == 0) { out->mode = M_PROCESSED; prefix = "/DCIM"; }
     else if (wcscmp(first, L"iCloud photos") == 0)    { out->mode = M_ICLOUD;    prefix = ICLOUD_DIR; }
     else if (wcscmp(first, MONTHS_FOLDER) == 0)       { parse_months_path(rest, out); return; }
+    else if (wcscmp(first, HOME_FOLDER) == 0)         out->mode = M_HOME;
     else if (wcscmp(first, SETTINGS_ITEM) == 0 && *rest == 0) { out->mode = M_SETTINGS; return; }
     else if (wcscmp(first, INFO_ITEM) == 0 && *rest == 0)     { out->mode = M_INFO; return; }
     else if (wcscmp(first, L"Applications") == 0) {

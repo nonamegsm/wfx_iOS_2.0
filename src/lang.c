@@ -208,6 +208,21 @@ static const WCHAR* const g_text[S_COUNT][LANG_COUNT] = {
     [S_YES]          = { L"Yes", L"Так", L"Да", L"Tak" },
     [S_NO]           = { L"No", L"Ні", L"Нет", L"Nie" },
     [S_ERR_SAVE]     = { L"Could not write the file.", L"Не вдалося записати файл.", L"Не удалось записать файл.", L"Nie można zapisać pliku." },
+    [S_ERR_HOME_READ] = {
+        L"Could not read the home screen layout (error %d).",
+        L"Не вдалося прочитати розташування іконок (помилка %d).",
+        L"Не удалось прочитать расположение значков (ошибка %d).",
+        L"Nie można odczytać układu ekranu początkowego (błąd %d)." },
+    [S_ERR_HOME_WRITE] = {
+        L"The device did not accept the new home screen layout (error %d).\nThe layout from before the change is saved in:\n%s",
+        L"Пристрій не прийняв нове розташування іконок (помилка %d).\nРозташування до зміни збережено у файлі:\n%s",
+        L"Устройство не приняло новое расположение значков (ошибка %d).\nРасположение до изменения сохранено в файле:\n%s",
+        L"Urządzenie nie przyjęło nowego układu ekranu początkowego (błąd %d).\nUkład sprzed zmiany zapisano w pliku:\n%s" },
+    [S_ERR_HOME_FILE] = {
+        L"This file is not a home screen layout.",
+        L"Цей файл не є розташуванням іконок.",
+        L"Этот файл не является расположением значков.",
+        L"Ten plik nie jest układem ekranu początkowego." },
     [S_BTN_OK]       = { L"OK", L"OK", L"OK", L"OK" },
     [S_BTN_CANCEL]   = { L"Cancel", L"Скасувати", L"Отмена", L"Anuluj" },
     [S_ALL_DEVICES] = {

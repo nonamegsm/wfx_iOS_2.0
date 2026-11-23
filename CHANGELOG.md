@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.9
+
+- `Home screen`: the icon layout of the device as folders - `Dock`, `Page 01`, `Page 02`, ...
+  with the device's folders inside. Move applications between pages and folders with F6,
+  make a folder with F7, rename a folder, move a whole folder to another page.
+- `Home screen\layout.plist` is the complete layout as a file: copy it to the PC to keep it,
+  copy a saved one back to restore it. The layout is also saved automatically before
+  every change (`%LOCALAPPDATA%\wfx_iOS`).
+
 ## 2.8
 
 - `Device information` window: serial number, IMEI, ECID, UDID, Wi-Fi / Bluetooth addresses,

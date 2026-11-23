@@ -18,6 +18,7 @@
 #define ICON_IMAGE_FILES   72
 #define ICON_CELLPHONE     97
 #define ICON_CAMERA        98
+#define ICON_STACK         55
 #define ICON_INFO          79
 #define ICON_SETTINGS      106
 
@@ -248,6 +249,16 @@ int extract_icon(WCHAR* remote_name, int extract_flags, HICON* icon)
     HICON handle;
 
     parse_path(remote_name, &rp);
+
+    /* Home screen: an application there gets the same icon as in "Applications". */
+    if (rp.mode == M_HOME) {
+        if (strcmp(rp.path, "/") == 0) {
+            stock_id = ICON_STACK;
+        } else if (home_item_bundle(&rp, rp.app, APP_ID_MAX)) {
+            rp.mode = M_APP;
+            copy_text(rp.path, AFC_PATH_MAX, "/");
+        }
+    }
 
     switch (rp.mode) {
     case M_ROOT:      if (strcmp(rp.path, "/") == 0)        stock_id = ICON_DRIVE;       break;

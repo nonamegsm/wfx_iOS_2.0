@@ -103,6 +103,7 @@ static void list_device_root(FindList* list, const char* udid)
     if (photos_available(udid)) find_list_add_folder(list, MONTHS_FOLDER);
 
     find_list_add_folder(list, L"Applications");
+    find_list_add_folder(list, HOME_FOLDER);
     add_pseudo_file(list, INFO_ITEM);
 }
 
@@ -455,6 +456,7 @@ FindList* find_list_create(const WCHAR* tc_path, WCHAR* err, int err_len)
         if (strcmp(rp.path, "/") == 0) ok = photos_list_months(rp.udid, list, err, err_len);
         else                           ok = photos_list_month(rp.udid, rp.path + 1, list, err, err_len);
         break;
+    case M_HOME:    ok = home_list(&rp, list, err, err_len); break;
     case M_INVALID:
     case M_SETTINGS:
     case M_INFO:    break;

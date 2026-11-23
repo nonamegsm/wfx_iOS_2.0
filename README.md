@@ -65,6 +65,7 @@ Then open *Network Neighborhood* -> *iOS*.
 | `iCloud photos` | photos synced from iCloud Photos (`/PhotoData/CPLAssets`); shown only when the device has them |
 | `Photos by month` | the whole photo library, one folder per month (`2026-11`), with original file names |
 | `Applications` | documents of apps that enable file sharing, by app name |
+| `Home screen` | the icons of the device: dock, pages and folders; move items to rearrange them |
 | `Device information` | not a folder: Enter opens a window with everything the device reports |
 
 With several devices connected, the root shows one folder per device (named after the
@@ -74,6 +75,38 @@ only that one.
 `Settings` at the plugin root (Enter), or Alt+Enter on the root, opens the settings dialog:
 device selection with device information, and the options below. Alt+Enter on a file shows
 its properties.
+
+## Home screen
+
+`Home screen` shows where the icons are on the device:
+
+```
+Home screen\Dock\Safari
+Home screen\Page 01\Mail
+Home screen\Page 02\Games\Chess        "Games" is a folder on the device
+Home screen\layout.plist                the whole layout as one file
+```
+
+| Action | Result on the device |
+|---|---|
+| F6 an item to another page, the dock or a folder | the icon moves there (it is added at the end) |
+| F6 an item to the page after the last one | a new page is made |
+| F7 on a page | a new folder; it appears on the device with the first item moved into it |
+| F6 / Shift+F6 a folder | moves it to another page / renames it |
+| F8 on an empty folder | removes it (a folder disappears by itself when its last item leaves) |
+| F5 `layout.plist` to the PC | saves the layout |
+| F5 a saved `.plist` into `Home screen` | restores that layout |
+
+Sorting by date shows the items in their order on the screen. Applications cannot be renamed
+or deleted here, and folders cannot contain folders - as on the device.
+
+Each change is sent to the device at once. The layout as it was before is saved first, to
+`%LOCALAPPDATA%\wfx_iOS\home-screen-<date>-<time>.plist`; copying such a file into
+`Home screen` puts everything back. Open `Home screen` again (or re-read with Ctrl+R there)
+after moving icons on the device itself, so that the plugin works from the current layout.
+
+Whether a device accepts a layout from a computer depends on the iOS version; when it refuses,
+the plugin says so and nothing changes.
 
 ## Device information
 
@@ -198,6 +231,7 @@ The plugin is plain C (C99 style), one module per job:
 | `src/columns.c` | extra file details for custom columns |
 | `src/dialogs.c` | settings dialog, file properties |
 | `src/info.c` | device information window |
+| `src/home.c` | home screen layout as folders |
 | `src/util.c` | strings, time, ini file, log file, error box |
 | `src/lang.c` | all user-visible texts in four languages |
 | `src/wfx_ios.h` | shared declarations and an overview |
