@@ -17,6 +17,7 @@ BOOL APIENTRY DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved)
         device_init();
         paths_init();
         icons_init();
+        columns_init();
     }
     return TRUE;
 }
@@ -294,4 +295,18 @@ int __stdcall FsExtractCustomIconW(WCHAR* remote_name, int extract_flags, HICON*
 {
     if (!remote_name || !icon) return FS_ICON_USEDEFAULT;
     return extract_icon(remote_name, extract_flags, icon);
+}
+
+/* ---------------------------------------------------------- custom columns */
+
+int __stdcall FsContentGetSupportedField(int field_index, char* field_name, char* units, int max_len)
+{
+    return columns_get_field(field_index, field_name, units, max_len);
+}
+
+int __stdcall FsContentGetValueW(WCHAR* file_name, int field_index, int unit_index, void* value, int max_len, int flags)
+{
+    (void)unit_index;                               /* none of our fields has units */
+    if (!file_name || !value) return ft_fileerror;
+    return columns_get_value(file_name, field_index, value, max_len, flags);
 }

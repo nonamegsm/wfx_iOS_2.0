@@ -73,6 +73,12 @@ only that one.
 device selection with device information, and the options below. Alt+Enter on a file shows
 its properties.
 
+## Custom columns
+
+The plugin offers extra file details to Total Commander: `Created`, `Type`, `Hard links`,
+`Blocks`, `Link target`, `Device path` and, for applications, `Bundle id`. To show them, open
+Configuration > Options > Custom columns, create a column set and pick fields of plugin `iOS`.
+
 ## Settings
 
 Use the settings dialog, or edit section `[wfx_iOS]` in Total Commander's `fsplugin.ini`:
@@ -140,6 +146,7 @@ The plugin is plain C (C99 style), one module per job:
 | `src/listing.c` | directory listings |
 | `src/transfer.c` | download, upload, copy on the device |
 | `src/icons.c` | folder and application icons |
+| `src/columns.c` | extra file details for custom columns |
 | `src/dialogs.c` | settings dialog, file properties |
 | `src/util.c` | strings, time, ini file, log file, error box |
 | `src/wfx_ios.h` | shared declarations and an overview |

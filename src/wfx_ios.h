@@ -15,6 +15,7 @@
  *   listing.c   directory listings (FsFindFirst / FsFindNext)
  *   transfer.c  download, upload, copy on the device
  *   icons.c     folder and application icons
+ *   columns.c   extra file details for custom columns
  *   dialogs.c   settings dialog, file properties
  *   plugin.c    the functions Total Commander calls (Fs...)
  *
@@ -234,6 +235,12 @@ int copy_on_device(const WCHAR* old_name, const WCHAR* new_name, const RemotePat
 
 void icons_init(void);                                      /* called once from DllMain */
 int  extract_icon(WCHAR* remote_name, int extract_flags, HICON* icon);
+
+/* -------------------------------------------------------------- columns.c */
+
+void columns_init(void);                                    /* called once from DllMain */
+int  columns_get_field(int field_index, char* field_name, char* units, int max_len);
+int  columns_get_value(const WCHAR* file_name, int field_index, void* value, int max_len, int flags);
 
 /* -------------------------------------------------------------- dialogs.c */
 

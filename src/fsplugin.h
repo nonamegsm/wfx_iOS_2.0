@@ -27,6 +27,19 @@
 #define FS_ICON_EXTRACTED_DESTROY 2
 #define FS_ICON_DELAYED 3
 
+/* Content (custom column) field types and result codes */
+#define ft_nomorefields 0
+#define ft_numeric_32 1
+#define ft_numeric_64 2
+#define ft_string 8
+#define ft_datetime 10
+#define ft_stringw 11
+#define ft_nosuchfield (-1)
+#define ft_fileerror (-2)
+#define ft_fieldempty (-3)
+#define ft_delayed 0
+#define CONTENT_DELAYIFSLOW 1
+
 #define BG_DOWNLOAD 1
 #define BG_UPLOAD 2
 

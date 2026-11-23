@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.4
+
+- Custom columns: creation time, type, hard links, blocks, link target, device path
+  and (for applications) the bundle id can be shown as Total Commander columns.
+
 ## 2.3
 
 - Several devices at once: with more than one device connected (and no preferred

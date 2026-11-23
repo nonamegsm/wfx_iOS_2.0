@@ -18,3 +18,5 @@ EXPORTS
     FsSetTimeW
     FsExecuteFileW
     FsExtractCustomIconW
+    FsContentGetSupportedField
+    FsContentGetValueW
